@@ -1,118 +1,117 @@
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Image} from 'react-native';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Image, Dimensions, SafeAreaView, Modal, Pressable} from 'react-native';
 import  {LinearGradient}  from 'expo-linear-gradient'; // Changed import
 import PotentialMatch from '../Components/PotentialMatch';
 import { Ionicons } from '@expo/vector-icons';
+import React, { useState } from 'react';
+const { width: SCREEN_W } = Dimensions.get('window');
 
 export default function Matching() {
+  const [isModalVisible, setModalVisible] = useState(false);
+
   return (
-    <View
-      colors={["#6A8DFF", "#1E4D91"]}
-      style={styles.gradient}
-     
-    >
+    <SafeAreaView style={styles.screen}>
       <ScrollView contentContainerStyle={styles.container}>
-        {/* PotentialMatch card will go here */}
-        <PotentialMatch />
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={() => setModalVisible(true)}
+          style={styles.touchableWrapper}
+        >
+          <PotentialMatch compact={true}/>
+        </TouchableOpacity>
       </ScrollView>
-      {/* Floating Action Buttons */}
-      <View style={styles.fabContainer} pointerEvents="box-none">
+
+      {/* FABs */}
+      <View style={styles.fabContainer}>
         <TouchableOpacity style={styles.fabAccept}>
-          <Ionicons name="checkmark" size={36} color="#fff" />
+          <Ionicons name="checkmark" size={32} color="#fff" />
         </TouchableOpacity>
         <TouchableOpacity style={styles.fabReject}>
-          <Ionicons name="close" size={36} color="#1ecb8b" />
+          <Ionicons name="close" size={32} color="#1ecb8b" />
         </TouchableOpacity>
       </View>
-    </View>
+
+      {/* Zoom-in Modal */}
+      <Modal
+        visible={isModalVisible}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setModalVisible(false)}
+          />
+          <View style={styles.modalContent}>
+            <ScrollView contentContainerStyle={styles.modalScroll}>
+              <PotentialMatch />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  gradient: {
-    flex: 1,
-
-  },
+  screen: { flex: 1, backgroundColor: '#F5F5F5' },
   container: {
     flexGrow: 1,
-    alignItems: 'center',
     justifyContent: 'center',
-    padding: 16
-  },
-  cardPlaceholder: {
-    width: '100%',
-    maxWidth: 400,
-    borderRadius: 24,
-    backgroundColor: '#f8f8f8',
-    padding: 24,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
+    padding: 16,
   },
-  text: {
-    color: '#1E4D91',
-    fontSize: 20,
-    fontWeight: 'bold',
+
+  // Constrain Touchable to same width as card (85% of screen)
+  touchableWrapper: {
+    width: SCREEN_W * 0.85,
+    alignSelf: 'center',
   },
 
   fabContainer: {
     position: 'absolute',
+    bottom: 24,
     left: 0,
     right: 0,
-    bottom: 20,
     flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'space-between',
-    zIndex: 10,
-    pointerEvents: 'box-none',
-
+    justifyContent: 'space-evenly',
   },
   fabAccept: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     backgroundColor: '#1ecb8b',
     alignItems: 'center',
     justifyContent: 'center',
-    marginHorizontal: '18%',
-    borderWidth: 2,
-    borderColor: '#1ecb8b',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
     elevation: 6,
   },
   fabReject: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginHorizontal: '18%',
     borderWidth: 2,
     borderColor: '#1ecb8b',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.10,
-    shadowRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
     elevation: 6,
   },
-  logoImageMatch: {
-    width: "35%",
-    height: 100,
-    resizeMode: 'contain',
 
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
   },
-  logoImageContainer: {
+  modalContent: {
+    flex: 1,
     width: '100%',
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    alignItems: 'flex-start',
-    paddingTop: 18,
-    paddingRight: 24,
-  }
-}); 
+    borderRadius: 24,
+    overflow: 'hidden',
+  },
+  modalScroll: {
+    flexGrow: 1,
+    justifyContent: 'center',
+  },
+});
