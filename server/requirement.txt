@@ -3,3 +3,5 @@ flask-cors
 Flask-Caching
 supabase
 Flask-JWT-Extended
+pip install langchain-core langgraph>0.2.27
+tensorflow
