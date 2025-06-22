@@ -1,6 +1,7 @@
 from elasticsearch import Elasticsearch
 import os
 from dotenv import load_dotenv
+from langchain.agents import AgentExecutor, create_react_agent
 import torch
 import json
 from custom_retrievers import CustomElasticsearchResumeRetriever
@@ -9,7 +10,12 @@ from langchain.chains import RetrievalQA, LLMChain
 from langchain.prompts import PromptTemplate
 from langchain.chains.combine_documents.stuff import StuffDocumentsChain
 from elasticsearch_inf import Elasticsearch_Inf
+from langchain.agents import tool
+from supabase_inf import Supabase_Infrastructure
+from langchain_core.prompts import ChatPromptTemplate
 import openai
+from functools import partial
+from langchain_core.tools import Tool
 os.environ["OPENAI_API_KEY"] = os.getenv("OPEN_AI_API_KEY")
 load_dotenv()
 openai.api_key = os.getenv("OPEN_AI_API_KEY")
@@ -42,8 +48,23 @@ As an AI assistant you have no power of negotiating or doing a task besides answ
 
 Answer:
 """
-
+SUPABASE_INF = Supabase_Infrastructure()
 elasticsearch_inf = Elasticsearch_Inf()
+def tool_helper(query):
+    list_output = CustomElasticsearchResumeRetriever(elasticsearch_inf.client, "user_index3")._get_relevant_documents(query)
+    ids_list = []
+    for doc in list_output:
+        ids_list.append(doc.metadata["id"])
+    print(ids_list)
+    return ids_list
+@tool
+def return_relevant_users(query):
+        """"Suggests potential cofounders matching the query,
+        it returns the output in the format <RELEVANT_USERS>...<RELEVANT_USERS>"""
+        user_ids = tool_helper(query)
+        users = []
+
+        return f"<USER_IDS>{user_ids}</USER_IDS>"
 class LangChain_Inf:
     def __init__(self):
         self.client = elasticsearch_inf.client
@@ -101,10 +122,12 @@ class LangChain_Inf:
         return out
     
     def get_relevant_user_ids(self, query):
+        
         list_output = self.resume_retriever._get_relevant_documents(query)
         ids_list = []
         for doc in list_output:
             ids_list.append(doc.metadata["id"])
+
         return ids_list
         
 
@@ -113,6 +136,41 @@ class LangChain_Inf:
         print("CHAIN ABOUT TO RUN")
         out = chain.run(query)
         return out
+    
+
+
+    def agent_user_qa(self, user_id, question):
+        prompt = ChatPromptTemplate.from_template("""
+            Answer the following question as best you can. You have access to the following tools:
+
+            {tools}
+
+            Use the following format:
+
+            Question: the input question you must answer
+            Thought: you should always think about what to do
+            Action: the action to take, should be one of [{tool_names}]
+            Action Input: the input to the action
+            Observation: the result of the action
+            ... (this Thought/Action/Action Input/Observation can repeat N times)
+            Thought: I now know the final answer
+            Final Answer: the final answer to the original question
+            Don't modify the brackets <USER_IDS> OUTPUT_FROM_TOOL </USER_IDS>
+            Example output: Here are the users: <USER_IDS> 1, 2 </USER_IDS>
+
+            Begin!
+           
+            Question: {input}
+            Thought:{agent_scratchpad}""")
+        # create an llm agent which has a tool to return relevant user_ids
+        # create a tool to return relevant user_ids
+        # create an llm agent which has a tool to return relevant user_ids
+        tool = Tool.from_function(func=return_relevant_users, name="return_relevant_users", description="Suggests potential cofounders based on the query")
+        agent = create_react_agent(self.llm, [tool], prompt=prompt)
+        agent_executor = AgentExecutor(agent=agent, tools=[tool], verbose=True, handle_parsing_errors=True)
+        return agent_executor.invoke({"input": question})
+
+
     
     def qa_user_id(self, query, user_id):
 
@@ -234,6 +292,7 @@ if __name__ == "__main__":
     search_and_embeddings_infrastructure = LangChain_Inf()
     #search_and_embeddings_infrastructure.index_embeddings(1, SAMPLE_RESUME, SAMPLE_PROFILE)
     # response = search_and_embeddings_infrastructure.qa_user_id("What is the name and role of the user", 60)
-    response = search_and_embeddings_infrastructure.get_relevant_user_ids("Find a user which is specialized in artificial Intelligence")
+    response = search_and_embeddings_infrastructure.agent_user_qa(1, "Suggest me potential cofounders specialized in Ai")
+    
     print(response)
 

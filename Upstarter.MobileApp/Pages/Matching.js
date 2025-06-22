@@ -1,6 +1,7 @@
 import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Image, Dimensions, SafeAreaView, Modal, Pressable, Alert, ActivityIndicator} from 'react-native';
 import  {LinearGradient}  from 'expo-linear-gradient'; // Changed import
 import PotentialMatch from '../Components/PotentialMatch';
+import PotentialMatchStartup from '../Components/PotentialMatchStartup';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
@@ -18,17 +19,25 @@ export default function Matching() {
     
     try {
       const response = await axios.get('http://10.40.252.128:8000/load_users_swipe');
-      const newUsers = response.data.content;
+      const newContent = response.data.content.map(item => {
+        if (item.type === 'user') {
+          return {
+            ...item,
+            seed: Math.floor(Math.random() * 100)
+          };
+        }
+        return item;
+      });
       
       if (append) {
         // Append new users to existing list
-        setPotentialMatches(prevMatches => [...prevMatches, ...newUsers]);
-        console.log('Appended', newUsers.length, 'new users. Total:', potentialMatches.length + newUsers.length);
+        setPotentialMatches(prevMatches => [...prevMatches, ...newContent]);
+        console.log('Appended', newContent.length, 'new items. Total:', potentialMatches.length + newContent.length);
       } else {
         // Replace all users
-        setPotentialMatches(newUsers);
+        setPotentialMatches(newContent);
         setCurrentMatchIndex(0);
-        console.log('Loaded', newUsers.length, 'users');
+        console.log('Loaded', newContent.length, 'items');
       }
       
       setTestResponse(response.data.content);
@@ -85,10 +94,40 @@ export default function Matching() {
 
   const currentMatch = getCurrentMatch();
 
+  const renderMatchCard = (match, isCompact) => {
+    if (!match) return null;
+  
+    if (match.type === 'startup') {
+      return (
+        <PotentialMatchStartup
+          compact={isCompact}
+          name={match.name}
+          logo_path={match.logo_path}
+          business_plan_content={match.business_plan_content}
+          about_content={match.about_content}
+          industry={match.industry}
+          cofounders={match.cofounders || []}
+        />
+      );
+    }
+    // Default to user
+    return (
+      <PotentialMatch
+        compact={isCompact}
+        name={match.name}
+        university={match.university}
+        major={match.major}
+        education_level={match.education_level}
+        about_me={match.about_me}
+        seed={match.seed}
+      />
+    );
+  };
+
   return (
     <SafeAreaView style={styles.screen}>
       <ScrollView contentContainerStyle={styles.container}>
-        {isLoading ? (
+        {isLoading && potentialMatches.length === 0 ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#1ecb8b" />
           </View>
@@ -98,14 +137,7 @@ export default function Matching() {
             onPress={() => setModalVisible(true)}
             style={styles.touchableWrapper}
           >
-            <PotentialMatch 
-              compact={true}
-              name={currentMatch.name}
-              university={currentMatch.university}
-              major={currentMatch.major}
-              education_level={currentMatch.education_level}
-              about_me={currentMatch.about_me}
-            />
+            {renderMatchCard(currentMatch, true)}
           </TouchableOpacity>
         ) : (
           <View style={styles.noMatchesContainer}>
@@ -143,16 +175,7 @@ export default function Matching() {
           />
           <View style={styles.modalContent}>
             <ScrollView contentContainerStyle={styles.modalScroll}>
-              {currentMatch && (
-                <PotentialMatch 
-                  compact={false}
-                  name={currentMatch.name}
-                  university={currentMatch.university}
-                  major={currentMatch.major}
-                  education_level={currentMatch.education_level}
-                  about_me={currentMatch.about_me}
-                />
-              )}
+              {renderMatchCard(currentMatch, false)}
             </ScrollView>
           </View>
         </View>

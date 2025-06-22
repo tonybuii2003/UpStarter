@@ -18,8 +18,8 @@ import {
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
-export default function PotentialMatch({ compact = false, name="john doe", university="", major="", education_level="", about_me="" }) {
-  const avatar_url = "https://randomuser.me/api/portraits/men/" + Math.floor(Math.random() * 100) + ".jpg"
+export default function PotentialMatch({ compact = false, name="john doe", university="", major="", education_level="", about_me="", seed=1 }) {
+  const avatar_url = "https://randomuser.me/api/portraits/men/" + seed + ".jpg"
   return (
     <LinearGradient style={styles.card} colors={['#6A8DFF', '#1E4D91']}>
       {/* --- Top Section --- */}
