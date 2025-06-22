@@ -17,7 +17,7 @@ export default function Matching() {
     setIsLoading(true);
     
     try {
-      const response = await axios.get('http://10.40.252.128:8000/load_users_swipe');
+      const response = await axios.get('http://10.56.56.30:8000/load_users_swipe');
       const newUsers = response.data.content;
       
       if (append) {
