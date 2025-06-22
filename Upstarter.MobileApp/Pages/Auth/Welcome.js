@@ -1,8 +1,50 @@
-import React from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, Image, Dimensions  } from 'react-native';
+import React, { useState } from 'react';
+import { StyleSheet, Text, View, TouchableOpacity, Image, Dimensions, Alert, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import axios from 'axios';
 
 export default function Welcome({ navigation }) {
+  const [testResponse, setTestResponse] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const testBackendConnection = async () => {
+    setIsLoading(true);
+    try {
+      // Use your computer's IP address instead of localhost
+      // You can find your IP by running 'ipconfig' on Windows or 'ifconfig' on Mac/Linux
+      const response = await axios.get('http://10.40.252.128:8000/load_users_swipe');
+      setTestResponse(response.data.content);
+      Alert.alert('Success', 'Backend connection successful!');
+    } catch (error) {
+      console.error('Backend connection error:', error);
+      Alert.alert('Error', 'Failed to connect to backend: ' + error.message);
+      setTestResponse(null);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const renderUserList = () => {
+    if (!testResponse || !Array.isArray(testResponse)) {
+      return null;
+    }
+
+    return (
+      <ScrollView style={styles.userListContainer}>
+        {testResponse.map((user, index) => (
+          <View key={index} style={styles.userCard}>
+            <Text style={styles.userName}>{user.name}</Text>
+            <Text style={styles.userInfo}>University: {user.university}</Text>
+            <Text style={styles.userInfo}>Major: {user.major}</Text>
+            <Text style={styles.userInfo}>Education: {user.education_level}</Text>
+            <Text style={styles.userInfo}>About: {user.about_me}</Text>
+            <Text style={styles.userInfo}>Co-founder: {user.is_cofounder ? 'Yes' : 'No'}</Text>
+          </View>
+        ))}
+      </ScrollView>
+    );
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.iconsContainer}>
@@ -29,6 +71,9 @@ export default function Welcome({ navigation }) {
           <Text style={styles.registerButtonText}>REGISTER</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Test Backend Connection Section */}
+    
     </View>
   );
 }
@@ -164,5 +209,55 @@ const styles = StyleSheet.create({
    // width:  '75%',
     maxHeight: 300,
     alignSelf: 'center'
+  },
+  testSection: {
+    marginTop: 20,
+    alignItems: 'center',
+  },
+  testButton: {
+    backgroundColor: '#0ACF83',
+    borderRadius: 8,
+    padding: 15,
+    alignItems: 'center',
+    width: '80%',
+  },
+  testButtonDisabled: {
+    backgroundColor: '#ccc',
+  },
+  testButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  responseContainer: {
+    marginTop: 20,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#333',
+    borderRadius: 8,
+    width: '80%',
+  },
+  responseLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  userListContainer: {
+    maxHeight: 200,
+  },
+  userCard: {
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#333',
+    borderRadius: 8,
+    marginBottom: 10,
+  },
+  userName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 5,
+  },
+  userInfo: {
+    fontSize: 14,
   },
 }); 

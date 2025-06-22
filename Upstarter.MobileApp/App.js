@@ -6,6 +6,8 @@ import { BackHandler, Image, StyleSheet, View, TouchableOpacity } from 'react-na
 import { useEffect } from 'react';
 import { useNavigationContainerRef, useNavigation } from '@react-navigation/native';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5'
+import { ModeProvider } from './context/ModeContext';
+import ChatScreenStartup from './Pages/ChatScreenStartup';
 
 // Import auth screens
 import Welcome from './Pages/Auth/Welcome';
@@ -20,33 +22,42 @@ import Chats from './Pages/Chats';
 import UserPage from './Pages/UserPage';
 import CurrentChat from './Pages/CurrentChat';
 import ChatsStack from './Pages/ChatsStack';
+import FoundersChat from './Pages/ChatScreenStartup';
+import MatchingStartups from './Pages/MatchingStartups';
+import { useMode } from './context/ModeContext';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
 function MainTabs() {
+  const { mode } = useMode();
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
         tabBarIcon: ({ focused, color, size }) => {
           let iconName;
 
-          switch (route.name) {
-            case 'Matching':
-              iconName = focused ? 'people' : 'people-outline';
-              break;
-            case 'Search':
-              iconName = focused ? 'star' : 'star-outline';
-              break;
-            case 'Workspace':
-              iconName = focused ? 'briefcase' : 'briefcase-outline';
-              break;
-            case 'Chats':
-              iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
-              break;
-            case 'Profile':
-              iconName = focused ? 'person' : 'person-outline';
-              break;
+          if (route.name === 'Matching') {
+            iconName = focused 
+              ? (mode === 'founder' ? 'people' : 'business') 
+              : (mode === 'founder' ? 'people-outline' : 'business-outline');
+          } else {
+            // Handle other icons as before
+            switch (route.name) {
+              case 'Search':
+                iconName = focused ? 'star' : 'star-outline';
+                break;
+              case 'Workspace':
+                iconName = focused ? 'briefcase' : 'briefcase-outline';
+                break;
+              case 'Chats':
+                iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
+                break;
+              case 'Profile':
+                iconName = focused ? 'person' : 'person-outline';
+                break;
+            }
           }
 
           return <Ionicons name={iconName} size={size} color={color} />;
@@ -81,18 +92,27 @@ function MainTabs() {
         },
       })}
     >
-      <Tab.Screen name="Matching" component={Matching} fontWeight={'100'} />
+      {/* Only one Matching screen - conditionally render the component */}
+      <Tab.Screen 
+        name="Matching" 
+        component={mode === 'founder' ? Matching : MatchingStartups}
+        options={{
+          title: mode === 'founder' ? 'Find Investors' : 'Find Startups'
+        }}
+      />
       <Tab.Screen name="Search" component={Search} />
       <Tab.Screen name="Workspace" component={Workspace} />
       <Tab.Screen name="Chats" component={ChatsStack} />
       <Tab.Screen name="Profile" component={UserPage} />
+      
+      {/* Remove the duplicate MatchingStartups screen */}
     </Tab.Navigator>
   );
 }
 
 export default function App() {
   const navigationRef = useNavigationContainerRef();
-
+  
   useEffect(() => {
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
       if (navigationRef.current) {
@@ -117,14 +137,18 @@ export default function App() {
   }, []);
 
   return (
-    <NavigationContainer ref={navigationRef}>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="Welcome" component={Welcome} />
-        <Stack.Screen name="Login" component={Login} />
-        <Stack.Screen name="Register" component={Register} />
-        <Stack.Screen name="MainApp" component={MainTabs} />
-      </Stack.Navigator>
-    </NavigationContainer>
+    <ModeProvider>
+      <NavigationContainer ref={navigationRef}>
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="Welcome" component={Welcome} />
+          <Stack.Screen name="Login" component={Login} />
+          <Stack.Screen name="Register" component={Register} />
+          <Stack.Screen name="MainApp" component={MainTabs} />
+          <Stack.Screen name="ChatScreen" component={ChatScreenStartup} />
+        </Stack.Navigator>
+      </NavigationContainer>
+    </ModeProvider>
+    
   );
 
 

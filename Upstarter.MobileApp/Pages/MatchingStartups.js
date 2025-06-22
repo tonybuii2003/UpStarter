@@ -1,89 +1,105 @@
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Image, Dimensions, SafeAreaView, Modal, Pressable, Alert, ActivityIndicator} from 'react-native';
-import  {LinearGradient}  from 'expo-linear-gradient'; // Changed import
-import PotentialMatch from '../Components/PotentialMatch';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Dimensions, SafeAreaView, Modal, Pressable, Alert, ActivityIndicator } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import PotentialStartup from '../Components/PotentialStartups'; // You'll need to create this component
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 const { width: SCREEN_W } = Dimensions.get('window');
+import { useNavigation } from '@react-navigation/native';
 
-export default function Matching() {
+export default function StartupMatching() {
   const [isModalVisible, setModalVisible] = useState(false);
-  const [testResponse, setTestResponse] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [potentialMatches, setPotentialMatches] = useState([]);
-  const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
+  const [potentialStartups, setPotentialStartups] = useState([]);
+  const [currentStartupIndex, setCurrentStartupIndex] = useState(0);
+  const [rejectedStartupIds, setRejectedStartupIds] = useState([]);
+  const navigation = useNavigation();
 
-  const loadUsersFromBackend = async (append = false) => {
+  const loadStartupsFromBackend = async (append = false) => {
     setIsLoading(true);
     
     try {
-      const response = await axios.get('http://10.56.121.148:8000/load_users_swipe');
-      const newUsers = response.data.content;
+      const response = await axios.get('http://10.56.121.148:8000/load_startups_swipe');
+      let newStartups = response.data.content;
+      
+      // Filter out already rejected startups
+      newStartups = newStartups.filter(startup => 
+        !rejectedStartupIds.includes(startup.startup_id)
+      );
       
       if (append) {
-        // Append new users to existing list
-        setPotentialMatches(prevMatches => [...prevMatches, ...newUsers]);
-        console.log('Appended', newUsers.length, 'new users. Total:', potentialMatches.length + newUsers.length);
+        // Append new startups to existing list
+        setPotentialStartups(prev => [...prev, ...newStartups]);
       } else {
-        // Replace all users
-        setPotentialMatches(newUsers);
-        setCurrentMatchIndex(0);
-        console.log('Loaded', newUsers.length, 'users');
+        // Replace all startups
+        setPotentialStartups(newStartups);
+        setCurrentStartupIndex(0);
       }
       
-      setTestResponse(response.data.content);
     } catch (error) {
       console.error('Backend connection error:', error);
-      Alert.alert('Error', 'Failed to load users: ' + error.message);
+      Alert.alert('Error', 'Failed to load startups: ' + error.message);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Load users when component mounts
+  // Load startups when component mounts
   useEffect(() => {
-    loadUsersFromBackend(false);
+    loadStartupsFromBackend(false);
   }, []);
 
-  // Check if we need to load more users
+  // Check if we need to load more startups
   useEffect(() => {
-    const remainingUsers = potentialMatches.length - currentMatchIndex;
-    if (remainingUsers <= 5 && !isLoading) {
-      console.log('Low on users, loading more...');
-      loadUsersFromBackend(true);
+    const remainingStartups = potentialStartups.length - currentStartupIndex;
+    if (remainingStartups <= 3 && !isLoading) {
+      loadStartupsFromBackend(true);
     }
-  }, [currentMatchIndex, potentialMatches.length]);
+  }, [currentStartupIndex, potentialStartups.length]);
 
   const handleAccept = () => {
-    // Handle accept logic here
-    console.log('Accepted:', potentialMatches[currentMatchIndex]);
-    if (currentMatchIndex < potentialMatches.length - 1) {
-      setCurrentMatchIndex(currentMatchIndex + 1);
-    } else {
-      // No more matches, reload or show message
-      Alert.alert('No more matches', 'You\'ve seen all available matches!');
-    }
-  };
+  const currentStartup = getCurrentStartup();
+  console.log('Accepted startup:', currentStartup);
+  
+  // Navigate to ChatScreen with the startup data
+  navigation.navigate('ChatScreen', { 
+    startup: currentStartup 
+  });
+  
+  // Move to next startup (if you want to keep this behavior)
+  if (currentStartupIndex < potentialStartups.length - 1) {
+    setCurrentStartupIndex(currentStartupIndex + 1);
+  } else {
+    loadStartupsFromBackend(true);
+  }
+};
 
   const handleReject = () => {
-    // Handle reject logic here
-    console.log('Rejected:', potentialMatches[currentMatchIndex]);
-    if (currentMatchIndex < potentialMatches.length - 1) {
-      setCurrentMatchIndex(currentMatchIndex + 1);
+    const currentStartup = getCurrentStartup();
+    console.log('Rejected startup:', currentStartup);
+    
+    // Add to rejected list
+    if (currentStartup) {
+      setRejectedStartupIds(prev => [...prev, currentStartup.startup_id]);
+    }
+    
+    // Move to next startup
+    if (currentStartupIndex < potentialStartups.length - 1) {
+      setCurrentStartupIndex(currentStartupIndex + 1);
     } else {
-      // No more matches, reload or show message
-      Alert.alert('No more matches', 'You\'ve seen all available matches!');
+      // No more matches, reload
+      loadStartupsFromBackend(true);
     }
   };
-
-  const getCurrentMatch = () => {
-    if (potentialMatches.length === 0 || currentMatchIndex >= potentialMatches.length) {
+  
+  const getCurrentStartup = () => {
+    if (potentialStartups.length === 0 || currentStartupIndex >= potentialStartups.length) {
       return null;
     }
-    return potentialMatches[currentMatchIndex];
+    return potentialStartups[currentStartupIndex];
   };
 
-  const currentMatch = getCurrentMatch();
+  const currentStartup = getCurrentStartup();
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -92,25 +108,25 @@ export default function Matching() {
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#1ecb8b" />
           </View>
-        ) : currentMatch ? (
+        ) : currentStartup ? (
           <TouchableOpacity
             activeOpacity={0.9}
             onPress={() => setModalVisible(true)}
             style={styles.touchableWrapper}
           >
-            <PotentialMatch 
+            <PotentialStartup 
               compact={true}
-              name={currentMatch.name}
-              university={currentMatch.university}
-              major={currentMatch.major}
-              education_level={currentMatch.education_level}
-              about_me={currentMatch.about_me}
+              name={currentStartup.name}
+              industry={currentStartup.industry}
+              description={currentStartup.about_content}
+              logo={currentStartup.logo_path}
+              cofounders={currentStartup.cofounders || []}
             />
           </TouchableOpacity>
         ) : (
           <View style={styles.noMatchesContainer}>
-            <Text style={styles.noMatchesText}>No matches available</Text>
-            <TouchableOpacity style={styles.reloadButton} onPress={() => loadUsersFromBackend(false)}>
+            <Text style={styles.noMatchesText}>No startups available</Text>
+            <TouchableOpacity style={styles.reloadButton} onPress={() => loadStartupsFromBackend(false)}>
               <Text style={styles.reloadButtonText}>Reload</Text>
             </TouchableOpacity>
           </View>
@@ -118,7 +134,7 @@ export default function Matching() {
       </ScrollView>
 
       {/* FABs */}
-      {currentMatch && (
+      {currentStartup && (
         <View style={styles.fabContainer}>
           <TouchableOpacity style={styles.fabAccept} onPress={handleAccept}>
             <Ionicons name="checkmark" size={32} color="#fff" />
@@ -143,14 +159,15 @@ export default function Matching() {
           />
           <View style={styles.modalContent}>
             <ScrollView contentContainerStyle={styles.modalScroll}>
-              {currentMatch && (
-                <PotentialMatch 
+              {currentStartup && (
+                <PotentialStartup 
                   compact={false}
-                  name={currentMatch.name}
-                  university={currentMatch.university}
-                  major={currentMatch.major}
-                  education_level={currentMatch.education_level}
-                  about_me={currentMatch.about_me}
+                  name={currentStartup.name}
+                  industry={currentStartup.industry}
+                  description={currentStartup.about_content}
+                  logo={currentStartup.logo_path}
+                  businessPlan={currentStartup.business_plan_content}
+                  cofounders={currentStartup.cofounders || []}
                 />
               )}
             </ScrollView>
@@ -161,6 +178,7 @@ export default function Matching() {
   );
 }
 
+// Reuse the same styles as your original Matching component
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#F5F5F5' },
   container: {
