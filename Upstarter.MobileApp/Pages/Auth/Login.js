@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, View, TextInput, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import ModeSwitcher from '../../Components/ModeSwitcher';
 
 export default function Login({ navigation }) {
   const [email, setEmail] = useState('');
@@ -58,13 +59,14 @@ export default function Login({ navigation }) {
         <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
           <Text style={styles.loginButtonText}>LOG IN</Text>
         </TouchableOpacity>
-        <TouchableOpacity 
+        {/* <TouchableOpacity 
           style={styles.investorButton}
           onPress={goToInvestorMode}
         >
           <Text style={styles.investorButtonText}>Investor Mode</Text>
-        </TouchableOpacity>
+        </TouchableOpacity> */}
       </View>
+      <ModeSwitcher />
     </View>
   );
 }

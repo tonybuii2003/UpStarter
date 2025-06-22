@@ -146,38 +146,168 @@ def load_users_swipe():
 
 @app.route('/ask/<startup_id>', methods=['POST'])
 def ask(startup_id):
-    if not qa_system.set_startup(startup_id):
-        return jsonify({"error": "Invalid startup ID"}), 400
-    
-    question = request.json.get('question', '')
     try:
+        supabase_inf = Supabase_Infrastructure()
+        
+        # 1. Fetch startup data
+        startup_data = supabase_inf.client.table("startup_table") \
+            .select("*") \
+            .eq("startup_id", startup_id) \
+            .execute()
+        
+        if not startup_data.data:
+            return jsonify({"error": "Startup not found"}), 404
+            
+        startup = startup_data.data[0]
+        
+        # 2. Parse cofounder IDs (format: "(id1, id2)")
+        cofounder_ids = []
+        if startup.get('cofounders'):
+            try:
+                cofounder_ids = [
+                    int(id.strip()) 
+                    for id in startup['cofounders'][1:-1].split(',')
+                    if id.strip().isdigit()
+                ]
+            except Exception as e:
+                logging.error(f"Error parsing cofounders: {str(e)}")
+                return jsonify({"error": "Invalid cofounders data"}), 400
+        
+        # 3. Fetch cofounder details
+        founders = []
+        for user_id in cofounder_ids:
+            try:
+                user_data = supabase_inf.client.table("user_table") \
+                    .select("*") \
+                    .eq("user_id", user_id) \
+                    .execute()
+                
+                if user_data.data:
+                    user = user_data.data[0]
+                    founders.append({
+                        "name": user.get('name', 'Unknown'),
+                        "title": "Co-Founder",  # Default title
+                        "background": user.get('about_me', ''),
+                        "skills": [user.get('major', '')] if user.get('major') else [],
+                        "interests": [],  # Can be extended if available
+                        "fun_fact": ""  # Can be extended if available
+                    })
+            except Exception as e:
+                logging.error(f"Error fetching cofounder {user_id}: {str(e)}")
+                continue
+        
+        if not founders:
+            return jsonify({"error": "No founders found for this startup"}), 404
+        
+        # 4. Set up QA system
+        qa_system.current_startup = {
+            "id": str(startup['startup_id']),
+            "name": startup['name'],
+            "description": startup.get('about_content', ''),
+            "founders": founders
+        }
+        qa_system.setup_qa_chain()
+        
+        # 5. Process question
+        question = request.json.get('question', '')
+        if not question:
+            return jsonify({"error": "Question is required"}), 400
+            
         response = qa_system.ask_about_founders(question)
         return jsonify({
             "answer": response.content,
             "startup": qa_system.current_startup["name"]
         })
+        
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        logging.error(f"Error in ask endpoint: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
 
 @app.route('/ask_stream/<startup_id>', methods=['POST'])
 def ask_stream(startup_id):
-    if not qa_system.set_startup(startup_id):
-        return jsonify({"error": "Invalid startup ID"}), 400
-    
-    question = request.json.get('question', '')
-    
-    def generate():
-        try:
-            for chunk in qa_system.qa_chain.stream({"question": question}):
-                if hasattr(chunk, 'content'):  # For AIMessage objects
-                    yield f"data: {chunk.content}\n\n"
-                elif isinstance(chunk, dict) and 'response' in chunk:
-                    yield f"data: {chunk['response']}\n\n"
-                time.sleep(0.05)
-        except Exception as e:
-            yield f"data: [ERROR] {str(e)}\n\n"
-    
-    return Response(stream_with_context(generate()), mimetype='text/event-stream')
+    try:
+        supabase_inf = Supabase_Infrastructure()
+        
+        # 1. Fetch startup data (same as /ask endpoint)
+        startup_data = supabase_inf.client.table("startup_table") \
+            .select("*") \
+            .eq("startup_id", startup_id) \
+            .execute()
+        
+        if not startup_data.data:
+            return jsonify({"error": "Startup not found"}), 404
+            
+        startup = startup_data.data[0]
+        
+        # 2. Parse cofounder IDs
+        cofounder_ids = []
+        if startup.get('cofounders'):
+            try:
+                cofounder_ids = [
+                    int(id.strip()) 
+                    for id in startup['cofounders'][1:-1].split(',')
+                    if id.strip().isdigit()
+                ]
+            except Exception as e:
+                logging.error(f"Error parsing cofounders: {str(e)}")
+                return jsonify({"error": "Invalid cofounders data"}), 400
+        
+        # 3. Fetch cofounder details
+        founders = []
+        for user_id in cofounder_ids:
+            try:
+                user_data = supabase_inf.client.table("user_table") \
+                    .select("*") \
+                    .eq("user_id", user_id) \
+                    .execute()
+                
+                if user_data.data:
+                    user = user_data.data[0]
+                    founders.append({
+                        "name": user.get('name', 'Unknown'),
+                        "title": "Co-Founder",
+                        "background": user.get('about_me', ''),
+                        "skills": [user.get('major', '')] if user.get('major') else [],
+                        "interests": [],
+                        "fun_fact": ""
+                    })
+            except Exception as e:
+                logging.error(f"Error fetching cofounder {user_id}: {str(e)}")
+                continue
+        
+        if not founders:
+            return jsonify({"error": "No founders found for this startup"}), 404
+        
+        # 4. Set up QA system
+        qa_system.current_startup = {
+            "id": str(startup['startup_id']),
+            "name": startup['name'],
+            "description": startup.get('about_content', ''),
+            "founders": founders
+        }
+        qa_system.setup_qa_chain()
+        
+        # 5. Stream response
+        question = request.json.get('question', '')
+        if not question:
+            return jsonify({"error": "Question is required"}), 400
+        
+        def generate():
+            try:
+                for chunk in qa_system.qa_chain.stream({"question": question}):
+                    if hasattr(chunk, 'content'):
+                        yield f"data: {chunk.content}\n\n"
+                    elif isinstance(chunk, dict) and 'response' in chunk:
+                        yield f"data: {chunk['response']}\n\n"
+                    time.sleep(0.05)
+            except Exception as e:
+                yield f"data: [ERROR] {str(e)}\n\n"
+        
+        return Response(stream_with_context(generate()), mimetype='text/event-stream')
+        
+    except Exception as e:
+        logging.error(f"Error in ask_stream endpoint: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
 
 @app.route('/startups', methods=['GET'])
 def list_startups():
@@ -187,6 +317,126 @@ def list_startups():
             for id, data in qa_system.manager.startups.items()
         ]
     })
-
+@app.route('/load_startups_swipe', methods=['GET'])
+def load_startups_swipe():
+    try:
+        supabase_inf = Supabase_Infrastructure()
+        
+        # Get all startups
+        startups_data = supabase_inf.client.table("startup_table").select("*").execute()
+        
+        # Shuffle the startups
+        shuffled_startups = list(startups_data.data)
+        random.shuffle(shuffled_startups)
+        
+        # Limit to 20 startups
+        startups = shuffled_startups[:10]
+        
+        # For each startup, get cofounder details
+        for startup in startups:
+            cofounder_ids = []
+            if startup.get('cofounders'):
+                try:
+                    cofounder_ids = [int(id.strip()) for id in startup['cofounders'][1:-1].split(',')]
+                except Exception as e:
+                    logging.error(f"Error parsing cofounders: {str(e)}")
+                    continue
+            
+            # Get cofounder details
+            cofounders = []
+            for user_id in cofounder_ids:
+                try:
+                    user_data = supabase_inf.client.table("user_table")\
+                        .select("*")\
+                        .eq("user_id", user_id)\
+                        .execute()
+                    
+                    if user_data.data:
+                        user = user_data.data[0]
+                        cofounders.append({
+                            "name": user.get('name', 'Unknown'),
+                            "university": user.get('university', ''),
+                            "major": user.get('major', ''),
+                            "profile_pic": user.get('profile_pic_path', '')
+                        })
+                except Exception as e:
+                    logging.error(f"Error fetching cofounder {user_id}: {str(e)}")
+                    continue
+            
+            startup['cofounders'] = cofounders
+        
+        return jsonify({
+            "success": True,
+            "content": startups
+        })
+        
+    except Exception as e:
+        logging.error(f"Error in load_startups_swipe: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+@app.route('/startups/<int:startup_id>', methods=['GET'])
+def get_startup(startup_id):
+    try:
+        supabase_inf = Supabase_Infrastructure()
+        
+        # Get the startup by ID
+        startup = supabase_inf.get_startup_by_id(startup_id)
+        
+        if not startup:
+            return jsonify({"success": False, "error": "Startup not found"}), 404
+        
+        # Parse cofounder IDs from the string format "(id1, id2)"
+        cofounder_ids = []
+        if startup.get('cofounders'):
+            try:
+                # Remove parentheses and split by commas
+                cofounder_ids = [
+                    int(id.strip()) 
+                    for id in startup['cofounders'][1:-1].split(',')
+                    if id.strip().isdigit()
+                ]
+            except Exception as e:
+                logging.error(f"Error parsing cofounders: {str(e)}")
+        
+        # Get cofounder details
+        cofounders = []
+        for user_id in cofounder_ids:
+            try:
+                user_data = supabase_inf.client.table("user_table") \
+                    .select("*") \
+                    .eq("user_id", user_id) \
+                    .execute()
+                
+                if user_data.data:
+                    user = user_data.data[0]
+                    cofounders.append({
+                        "user_id": user['user_id'],
+                        "name": user.get('name', 'Unknown'),
+                        "university": user.get('university', ''),
+                        "major": user.get('major', ''),
+                        "profile_pic": user.get('profile_pic_path', ''),
+                        "linkedin": user.get('linked_in_url', ''),
+                        "about_me": user.get('about_me', '')
+                    })
+            except Exception as e:
+                logging.error(f"Error fetching cofounder {user_id}: {str(e)}")
+                continue
+        
+        # Prepare the response
+        response_data = {
+            "id": startup['startup_id'],
+            "name": startup['name'],
+            "description": startup.get('about_content', ''),
+            "industry": startup.get('industry', ''),
+            "logo": startup.get('logo_path', ''),
+            "business_plan": startup.get('business_plan_content', ''),
+            "cofounder_ids": cofounder_ids,
+            "cofounders": cofounders
+        }
+        
+        return jsonify({"success": True, "startup": response_data})
+        
+    except Exception as e:
+        logging.error(f"Error in get_startup endpoint: {str(e)}")
+        return jsonify({"success": False, "error": "Internal server error"}), 500
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000, debug=True)

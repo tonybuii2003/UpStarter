@@ -1,210 +1,270 @@
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Dimensions, SafeAreaView, FlatList } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import React, { useState } from 'react';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Dimensions, SafeAreaView, Modal, Pressable, Alert, ActivityIndicator } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-
+import PotentialStartup from '../Components/PotentialStartups'; // You'll need to create this component
+import { Ionicons } from '@expo/vector-icons';
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 const { width: SCREEN_W } = Dimensions.get('window');
 
-const startupData = [
-  {
-    id: '1',
-    name: 'EcoVision AI',
-    industry: 'Climate Tech',
-    description: 'AI-powered carbon footprint reduction platform',
-    founders: [
-      { id: 'f1', name: 'Dr. Sarah Chen', role: 'CEO' },
-      { id: 'f2', name: 'Jamal Williams', role: 'CTO' }
-    ],
-    fundingStage: 'Series A',
-    milestones: ['Won Green Tech Award', 'Raised $15M']
-  },
-  {
-    id: '2',
-    name: 'AgriTech Solutions',
-    industry: 'Agriculture',
-    description: 'Precision farming with AI and IoT',
-    founders: [
-      { id: 'f3', name: 'Raj Patel', role: 'CEO' }
-    ],
-    fundingStage: 'Seed',
-    milestones: ['40% water reduction', '500+ farms']
-  }
-];
+export default function StartupMatching() {
+  const [isModalVisible, setModalVisible] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [potentialStartups, setPotentialStartups] = useState([]);
+  const [currentStartupIndex, setCurrentStartupIndex] = useState(0);
+  const [rejectedStartupIds, setRejectedStartupIds] = useState([]);
 
-const FounderItem = ({ name, role }) => (
-  <View style={styles.founderItem}>
-    <Ionicons name="person-circle-outline" size={16} color="#666" />
-    <Text style={styles.founderText}>{name} ({role})</Text>
-  </View>
-);
+  const loadStartupsFromBackend = async (append = false) => {
+    setIsLoading(true);
+    
+    try {
+      const response = await axios.get('http://10.56.121.148:8000/load_startups_swipe');
+      let newStartups = response.data.content;
+      
+      // Filter out already rejected startups
+      newStartups = newStartups.filter(startup => 
+        !rejectedStartupIds.includes(startup.startup_id)
+      );
+      
+      if (append) {
+        // Append new startups to existing list
+        setPotentialStartups(prev => [...prev, ...newStartups]);
+      } else {
+        // Replace all startups
+        setPotentialStartups(newStartups);
+        setCurrentStartupIndex(0);
+      }
+      
+    } catch (error) {
+      console.error('Backend connection error:', error);
+      Alert.alert('Error', 'Failed to load startups: ' + error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-const StartupCard = ({ startup }) => (
-  <LinearGradient
-    colors={['#FFFFFF', '#F5F5F5']}
-    style={styles.card}
-    start={{ x: 0, y: 0 }}
-    end={{ x: 1, y: 1 }}
-  >
-    <Text style={styles.name}>{startup.name}</Text>
-    <Text style={styles.industry}>{startup.industry} • {startup.fundingStage}</Text>
-    
-    <Text style={styles.description}>{startup.description}</Text>
-    
-    <View style={styles.foundersContainer}>
-      <Text style={styles.sectionTitle}>Founders:</Text>
-      {startup.founders.map(founder => (
-        <FounderItem key={founder.id} name={founder.name} role={founder.role} />
-      ))}
-    </View>
-    
-    <View style={styles.milestonesContainer}>
-      <Text style={styles.sectionTitle}>Milestones:</Text>
-      {startup.milestones.map((milestone, index) => (
-        <View key={index} style={styles.milestoneItem}>
-          <Ionicons name="checkmark-circle" size={16} color="#1ecb8b" />
-          <Text style={styles.milestoneText}>{milestone}</Text>
-        </View>
-      ))}
-    </View>
-  </LinearGradient>
-);
+  // Load startups when component mounts
+  useEffect(() => {
+    loadStartupsFromBackend(false);
+  }, []);
 
-export default function MatchingStartups({ navigation }) {
-  const [selectedStartup, setSelectedStartup] = useState(null);
+  // Check if we need to load more startups
+  useEffect(() => {
+    const remainingStartups = potentialStartups.length - currentStartupIndex;
+    if (remainingStartups <= 3 && !isLoading) {
+      loadStartupsFromBackend(true);
+    }
+  }, [currentStartupIndex, potentialStartups.length]);
+
+  const handleAccept = () => {
+    // Handle accept logic here
+    const currentStartup = getCurrentStartup();
+    console.log('Accepted startup:', currentStartup);
+    
+    // Move to next startup
+    if (currentStartupIndex < potentialStartups.length - 1) {
+      setCurrentStartupIndex(currentStartupIndex + 1);
+    } else {
+      // No more matches, reload
+      loadStartupsFromBackend(true);
+    }
+  };
+
+  const handleReject = () => {
+    const currentStartup = getCurrentStartup();
+    console.log('Rejected startup:', currentStartup);
+    
+    // Add to rejected list
+    if (currentStartup) {
+      setRejectedStartupIds(prev => [...prev, currentStartup.startup_id]);
+    }
+    
+    // Move to next startup
+    if (currentStartupIndex < potentialStartups.length - 1) {
+      setCurrentStartupIndex(currentStartupIndex + 1);
+    } else {
+      // No more matches, reload
+      loadStartupsFromBackend(true);
+    }
+  };
+
+  const getCurrentStartup = () => {
+    if (potentialStartups.length === 0 || currentStartupIndex >= potentialStartups.length) {
+      return null;
+    }
+    return potentialStartups[currentStartupIndex];
+  };
+
+  const currentStartup = getCurrentStartup();
 
   return (
     <SafeAreaView style={styles.screen}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={24} color="#333" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Investor Mode</Text>
-        <View style={{ width: 24 }} /> {/* Spacer */}
-      </View>
-
-      <FlatList
-        data={startupData}
-        keyExtractor={item => item.id}
-        contentContainerStyle={styles.listContent}
-        renderItem={({ item }) => (
-          <TouchableOpacity 
+      <ScrollView contentContainerStyle={styles.container}>
+        {isLoading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#1ecb8b" />
+          </View>
+        ) : currentStartup ? (
+          <TouchableOpacity
             activeOpacity={0.9}
-            onPress={() => setSelectedStartup(item)}
+            onPress={() => setModalVisible(true)}
+            style={styles.touchableWrapper}
           >
-            <StartupCard startup={item} />
+            <PotentialStartup 
+              compact={true}
+              name={currentStartup.name}
+              industry={currentStartup.industry}
+              description={currentStartup.about_content}
+              logo={currentStartup.logo_path}
+              cofounders={currentStartup.cofounders || []}
+            />
           </TouchableOpacity>
+        ) : (
+          <View style={styles.noMatchesContainer}>
+            <Text style={styles.noMatchesText}>No startups available</Text>
+            <TouchableOpacity style={styles.reloadButton} onPress={() => loadStartupsFromBackend(false)}>
+              <Text style={styles.reloadButtonText}>Reload</Text>
+            </TouchableOpacity>
+          </View>
         )}
-      />
+      </ScrollView>
+
+      {/* FABs */}
+      {currentStartup && (
+        <View style={styles.fabContainer}>
+          <TouchableOpacity style={styles.fabAccept} onPress={handleAccept}>
+            <Ionicons name="checkmark" size={32} color="#fff" />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.fabReject} onPress={handleReject}>
+            <Ionicons name="close" size={32} color="#1ecb8b" />
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Zoom-in Modal */}
+      <Modal
+        visible={isModalVisible}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setModalVisible(false)}
+          />
+          <View style={styles.modalContent}>
+            <ScrollView contentContainerStyle={styles.modalScroll}>
+              {currentStartup && (
+                <PotentialStartup 
+                  compact={false}
+                  name={currentStartup.name}
+                  industry={currentStartup.industry}
+                  description={currentStartup.about_content}
+                  logo={currentStartup.logo_path}
+                  businessPlan={currentStartup.business_plan_content}
+                  cofounders={currentStartup.cofounders || []}
+                />
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
+// Reuse the same styles as your original Matching component
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: '#F5F5F5'
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  screen: { flex: 1, backgroundColor: '#F5F5F5' },
+  container: {
+    flexGrow: 1,
+    justifyContent: 'center',
     alignItems: 'center',
     padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EEE'
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333'
-  },
-  listContent: {
-    padding: 16,
-    paddingBottom: 100
-  },
-  card: {
-    width: SCREEN_W * 0.9,
+
+  // Constrain Touchable to same width as card (85% of screen)
+  touchableWrapper: {
+    width: SCREEN_W * 0.85,
     alignSelf: 'center',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 3
   },
-  name: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 4
-  },
-  industry: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 12
-  },
-  description: {
-    fontSize: 16,
-    color: '#444',
-    marginBottom: 16,
-    lineHeight: 22
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8
-  },
-  foundersContainer: {
-    marginBottom: 16
-  },
-  founderItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4
-  },
-  founderText: {
-    fontSize: 14,
-    color: '#666',
-    marginLeft: 8
-  },
-  milestonesContainer: {
-    marginTop: 8
-  },
-  milestoneItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4
-  },
-  milestoneText: {
-    fontSize: 14,
-    color: '#444',
-    marginLeft: 8
-  },
+
   fabContainer: {
     position: 'absolute',
     bottom: 24,
-    right: 24,
+    left: 0,
+    right: 0,
     flexDirection: 'row',
-    gap: 16
+    justifyContent: 'space-evenly',
   },
-  fabMessage: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+  fabAccept: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     backgroundColor: '#1ecb8b',
     alignItems: 'center',
     justifyContent: 'center',
-    elevation: 6
+    elevation: 6,
   },
-  fabInvest: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#0ACF83',
+  fabReject: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderColor: '#1ecb8b',
     alignItems: 'center',
     justifyContent: 'center',
-    elevation: 6
-  }
+    elevation: 6,
+  },
+
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  modalContent: {
+    flex: 1,
+    width: '100%',
+    borderRadius: 24,
+    overflow: 'hidden',
+  },
+  modalScroll: {
+    flexGrow: 1,
+    justifyContent: 'center',
+  },
+
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 16,
+  },
+
+  noMatchesContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  noMatchesText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 16,
+  },
+  reloadButton: {
+    padding: 16,
+    backgroundColor: '#1ecb8b',
+    borderRadius: 8,
+  },
+  reloadButtonText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
 });
