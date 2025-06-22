@@ -365,7 +365,12 @@ const styles = StyleSheet.create({
   loadingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#0ACF83',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    height: 48,
+    backgroundColor: '#fff',
   },
   loadingText: {
     marginLeft: 10,
@@ -431,4 +436,4 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     elevation: 6,
   },
-}); 
+});

@@ -5,11 +5,15 @@ from typing import Dict, Optional
 from dotenv import load_dotenv
 load_dotenv()
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.runnables import RunnablePassthrough
 from langchain.globals import set_llm_cache
+from elasticsearch import Elasticsearch, helpers
+from langchain_community.vectorstores import ElasticsearchStore
+import json
 import logging
 import random
+import os
 from infrastructure.supabase_inf import Supabase_Infrastructure
 from infrastructure.langchain_infrastructure import LangChain_Inf
 
@@ -245,38 +249,212 @@ def get_user_by_id():
 
 @app.route('/ask/<startup_id>', methods=['POST'])
 def ask(startup_id):
-    if not qa_system.set_startup(startup_id):
-        return jsonify({"error": "Invalid startup ID"}), 400
-    
-    question = request.json.get('question', '')
     try:
+        supabase_inf = Supabase_Infrastructure()
+        
+        # 1. Fetch startup data
+        startup_data = supabase_inf.client.table("startup_table") \
+            .select("*") \
+            .eq("startup_id", startup_id) \
+            .execute()
+        
+        if not startup_data.data:
+            return jsonify({"error": "Startup not found"}), 404
+            
+        startup = startup_data.data[0]
+        
+        # 2. Parse cofounder IDs (format: "(id1, id2)")
+        cofounder_ids = []
+        if startup.get('cofounders'):
+            try:
+                cofounder_ids = [
+                    int(id.strip()) 
+                    for id in startup['cofounders'][1:-1].split(',')
+                    if id.strip().isdigit()
+                ]
+            except Exception as e:
+                logging.error(f"Error parsing cofounders: {str(e)}")
+                return jsonify({"error": "Invalid cofounders data"}), 400
+        
+        # 3. Fetch cofounder details
+        founders = []
+        for user_id in cofounder_ids:
+            try:
+                user_data = supabase_inf.client.table("user_table") \
+                    .select("*") \
+                    .eq("user_id", user_id) \
+                    .execute()
+                
+                if user_data.data:
+                    user = user_data.data[0]
+                    founders.append({
+                        "name": user.get('name', 'Unknown'),
+                        "title": "Co-Founder",  # Default title
+                        "background": user.get('about_me', ''),
+                        "skills": [user.get('major', '')] if user.get('major') else [],
+                        "interests": [],  # Can be extended if available
+                        "fun_fact": ""  # Can be extended if available
+                    })
+            except Exception as e:
+                logging.error(f"Error fetching cofounder {user_id}: {str(e)}")
+                continue
+        
+        if not founders:
+            return jsonify({"error": "No founders found for this startup"}), 404
+        
+        # 4. Set up QA system
+        qa_system.current_startup = {
+            "id": str(startup['startup_id']),
+            "name": startup['name'],
+            "description": startup.get('about_content', ''),
+            "founders": founders
+        }
+        qa_system.setup_qa_chain()
+        
+        # 5. Process question
+        question = request.json.get('question', '')
+        if not question:
+            return jsonify({"error": "Question is required"}), 400
+            
         response = qa_system.ask_about_founders(question)
         return jsonify({
             "answer": response.content,
             "startup": qa_system.current_startup["name"]
         })
+        
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        logging.error(f"Error in ask endpoint: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
 
-@app.route('/ask_stream/<startup_id>', methods=['POST'])
+@app.route('/ask_stream/<startup_id>', methods=['POST', 'GET'])
 def ask_stream(startup_id):
-    if not qa_system.set_startup(startup_id):
-        return jsonify({"error": "Invalid startup ID"}), 400
-    
-    question = request.json.get('question', '')
-    
-    def generate():
-        try:
-            for chunk in qa_system.qa_chain.stream({"question": question}):
-                if hasattr(chunk, 'content'):  # For AIMessage objects
-                    yield f"data: {chunk.content}\n\n"
-                elif isinstance(chunk, dict) and 'response' in chunk:
-                    yield f"data: {chunk['response']}\n\n"
-                time.sleep(0.05)
-        except Exception as e:
-            yield f"data: [ERROR] {str(e)}\n\n"
-    
-    return Response(stream_with_context(generate()), mimetype='text/event-stream')
+    try:
+        # Validate request
+        question = ""
+        print(f"Request method: {request.method}")
+        # Handle both GET (query param) and POST (JSON body) requests
+        if request.method == 'GET':
+            question = request.args.get('query', '')
+            print(f"Received GET question: {question}")
+            # print request
+            print(f"Full request args: {request.args}")
+        else:
+            # For POST, try to get JSON body, but don't require it
+            if request.is_json:
+                data = request.get_json()
+                question = data.get('question', '')
+                print(f"Received POST question: {question}")
+                print(f"Full request JSON: {data}")
+            else:
+                # Fallback to form data if not JSON
+                print("Request is not JSON, checking form data")
+                question = request.form.get('query', '')
+        
+        if not question:
+            return jsonify({"error": "Question is required"}), 400
+
+        # Fetch startup data
+        supabase_inf = Supabase_Infrastructure()
+        startup_data = supabase_inf.client.table("startup_table") \
+            .select("*") \
+            .eq("startup_id", startup_id) \
+            .execute()
+            
+        if not startup_data.data:
+            return jsonify({"error": "Startup not found"}), 404
+            
+        startup = startup_data.data[0]
+        
+        # Parse cofounder IDs from string like "(2, 1482)"
+        # 2. Parse cofounder IDs
+        cofounder_ids = []
+        if startup.get('cofounders'):
+            try:
+                cofounder_ids = [
+                    int(id.strip()) 
+                    for id in startup['cofounders'][1:-1].split(',')
+                    if id.strip().isdigit()
+                ]
+            except Exception as e:
+                logging.error(f"Error parsing cofounders: {str(e)}")
+                return jsonify({"error": "Invalid cofounders data"}), 400
+        
+        # 3. Fetch cofounder details
+        founders = []
+        for user_id in cofounder_ids:
+            try:
+                user_data = supabase_inf.client.table("user_table") \
+                    .select("*") \
+                    .eq("user_id", user_id) \
+                    .execute()
+                
+                if user_data.data:
+                    user = user_data.data[0]
+                    founders.append({
+                        "name": user.get('name', 'Unknown'),
+                        "title": "Co-Founder",
+                        "background": user.get('about_me', ''),
+                        "skills": [user.get('major', '')] if user.get('major') else [],
+                        "interests": [],
+                        "fun_fact": ""
+                    })
+            except Exception as e:
+                logging.error(f"Error fetching cofounder {user_id}: {str(e)}")
+                continue
+        
+        if not founders:
+            return jsonify({"error": "No founders found for this startup"}), 404
+        
+        # Set up QA system with only existing fields
+        qa_system.current_startup = {
+            "id": str(startup['startup_id']),
+            "name": startup['name'],
+            "description": startup.get('about_content', ''),
+            "industry": startup.get('industry', ''),
+            "logo": startup.get('logo_path', ''),
+            "founders": founders
+        }
+        qa_system.setup_qa_chain()
+        
+        # Stream response
+        def generate():
+            try:
+                process = qa_system.qa_chain.stream({"question": question})
+                buffer = ""
+                for chunk in process:
+                    # Convert chunk to string
+                    chunk_str = str(chunk.content) if hasattr(chunk, 'content') else str(chunk)
+                    buffer += chunk_str
+                    
+                    # Split by newlines to handle partial chunks
+                    while '\n' in buffer:
+                        line, buffer = buffer.split('\n', 1)
+                        yield f"data: {json.dumps({'text': line})}\n\n"
+                    
+                    # If no newline, send what we have
+                    if buffer:
+                        yield f"data: {json.dumps({'text': buffer})}\n\n"
+                        buffer = ""
+            except Exception as e:
+                logging.error(f"Streaming error: {str(e)}")
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        
+        return Response(
+            generate(),
+            mimetype='text/event-stream',
+            headers={
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive'
+            }
+        )
+        
+    except Exception as e:
+        logging.error(f"Endpoint error: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
+@app.before_request
+def limit_requests():
+    time.sleep(0.1)
 
 @app.route('/startups', methods=['GET'])
 def list_startups():
@@ -286,7 +464,386 @@ def list_startups():
             for id, data in qa_system.manager.startups.items()
         ]
     })
+@app.route('/load_startups_swipe', methods=['GET'])
+def load_startups_swipe():
+    try:
+        supabase_inf = Supabase_Infrastructure()
+        
+        # Get all startups
+        startups_data = supabase_inf.client.table("startup_table").select("*").execute()
+        
+        # Shuffle the startups
+        shuffled_startups = list(startups_data.data)
+        random.shuffle(shuffled_startups)
+        
+        # Limit to 20 startups
+        startups = shuffled_startups[:10]
+        
+        # For each startup, get cofounder details
+        for startup in startups:
+            cofounder_ids = []
+            if startup.get('cofounders'):
+                try:
+                    cofounder_ids = [int(id.strip()) for id in startup['cofounders'][1:-1].split(',')]
+                except Exception as e:
+                    logging.error(f"Error parsing cofounders: {str(e)}")
+                    continue
+            
+            # Get cofounder details
+            cofounders = []
+            for user_id in cofounder_ids:
+                try:
+                    user_data = supabase_inf.client.table("user_table")\
+                        .select("*")\
+                        .eq("user_id", user_id)\
+                        .execute()
+                    
+                    if user_data.data:
+                        user = user_data.data[0]
+                        cofounders.append({
+                            "name": user.get('name', 'Unknown'),
+                            "university": user.get('university', ''),
+                            "major": user.get('major', ''),
+                            "profile_pic": user.get('profile_pic_path', '')
+                        })
+                except Exception as e:
+                    logging.error(f"Error fetching cofounder {user_id}: {str(e)}")
+                    continue
+            
+            startup['cofounders'] = cofounders
+        
+        return jsonify({
+            "success": True,
+            "content": startups
+        })
+        
+    except Exception as e:
+        logging.error(f"Error in load_startups_swipe: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+@app.route('/startups/<int:startup_id>', methods=['GET'])
+def get_startup(startup_id):
+    try:
+        supabase_inf = Supabase_Infrastructure()
+        
+        # Get the startup by ID
+        startup = supabase_inf.get_startup_by_id(startup_id)
+        
+        if not startup:
+            return jsonify({"success": False, "error": "Startup not found"}), 404
+        
+        # Parse cofounder IDs from the string format "(id1, id2)"
+        cofounder_ids = []
+        if startup.get('cofounders'):
+            try:
+                # Remove parentheses and split by commas
+                cofounder_ids = [
+                    int(id.strip()) 
+                    for id in startup['cofounders'][1:-1].split(',')
+                    if id.strip().isdigit()
+                ]
+            except Exception as e:
+                logging.error(f"Error parsing cofounders: {str(e)}")
+        
+        # Get cofounder details
+        cofounders = []
+        for user_id in cofounder_ids:
+            try:
+                user_data = supabase_inf.client.table("user_table") \
+                    .select("*") \
+                    .eq("user_id", user_id) \
+                    .execute()
+                
+                if user_data.data:
+                    user = user_data.data[0]
+                    cofounders.append({
+                        "user_id": user['user_id'],
+                        "name": user.get('name', 'Unknown'),
+                        "university": user.get('university', ''),
+                        "major": user.get('major', ''),
+                        "profile_pic": user.get('profile_pic_path', ''),
+                        "linkedin": user.get('linked_in_url', ''),
+                        "about_me": user.get('about_me', '')
+                    })
+            except Exception as e:
+                logging.error(f"Error fetching cofounder {user_id}: {str(e)}")
+                continue
+        
+        # Prepare the response
+        response_data = {
+            "id": startup['startup_id'],
+            "name": startup['name'],
+            "description": startup.get('about_content', ''),
+            "industry": startup.get('industry', ''),
+            "logo": startup.get('logo_path', ''),
+            "business_plan": startup.get('business_plan_content', ''),
+            "cofounder_ids": cofounder_ids,
+            "cofounders": cofounders
+        }
+        
+        return jsonify({"success": True, "startup": response_data})
+        
+    except Exception as e:
+        logging.error(f"Error in get_startup endpoint: {str(e)}")
+        return jsonify({"success": False, "error": "Internal server error"}), 500
+es = Elasticsearch(
+    ["https://my-elasticsearch-project-b7242c.es.us-central1.gcp.elastic.cloud:443"],  # Or your cloud URL
+    api_key=os.getenv("ELASTICSEARCH_API_KEY"),
+    verify_certs=False,
+    timeout=30,  # seconds
+    max_retries=3,
+    retry_on_timeout=True
+)
+embeddings = OpenAIEmbeddings()
+# ---------------- mappings.py (or keep in ElasticSearchManager) ----------------
+USER_MAPPING = {
+    "mappings": {
+        "properties": {
+            "user_id":      {"type": "keyword"},
+            "name":         {"type": "text"},
+            "university":   {"type": "keyword"},
+            "major":        {"type": "keyword"},
+            "about_me":     {"type": "text"},
 
+            # >>> top-level dense_vector, no multi-field <<<
+            "about_me_vector": {
+                "type":       "dense_vector",
+                "dims":       1536,
+                "index":      True,
+                "similarity": "cosine"
+            },
+
+            "is_cofounder": {"type": "boolean"}
+        }
+    }
+}
+
+STARTUP_MAPPING = {
+    "mappings": {
+        "properties": {
+            "startup_id":   {"type": "keyword"},
+            "name":         {"type": "text"},
+            "industry":     {"type": "keyword"},
+            "about_content":{"type": "text"},
+
+            "about_content_vector": {
+                "type":       "dense_vector",
+                "dims":       1536,
+                "index":      True,
+                "similarity": "cosine"
+            },
+
+            "cofounders":   {"type": "keyword"}
+        }
+    }
+}
+
+class ElasticSearchManager:
+    def __init__(self):
+        self.supabase      = Supabase_Infrastructure()
+        self.user_index    = "user_index3"
+        self.startup_index = "startup_index"
+        self._ensure_indices_exist()
+
+    def _ensure_indices_exist(self):
+        """Create the two indices with correct mappings if they do not exist."""
+        if not es.indices.exists(index=self.user_index):
+            es.indices.create(index=self.user_index, body=USER_MAPPING)
+
+        if not es.indices.exists(index=self.startup_index):
+            es.indices.create(index=self.startup_index, body=STARTUP_MAPPING)
+    def _build_query(self, query, query_embedding, field_name, search_type, limit):
+        q = {
+            "size": limit,
+            "query": {"bool": {"should": []}}
+        }
+        if search_type in ("text", "hybrid"):
+            q["query"]["bool"]["should"].append({
+                "multi_match": {
+                    "query":  query,
+                    "fields": ["name^3", "about_me^2", "major", "university", "about_content", "industry"]
+                }
+            })
+        if search_type in ("vector", "hybrid"):
+            q["query"]["bool"]["should"].append({
+                "script_score": {
+                    "query": {"match_all": {}},
+                    "script": {
+                        "source": "cosineSimilarity(params.qv, params.field) + 1.0",
+                        "params": {"qv": query_embedding, "field": field_name}
+                    }
+                }
+            })
+        return q
+    def index_all_data(self):
+        """Index all users and startups from Supabase"""
+        self._index_users()
+        self._index_startups()
+
+    def _index_users(self):
+        """Bulk index all users"""
+        users = self.supabase.client.table("user_table").select("*").execute()
+        
+        actions = []
+        for user in users.data:
+            embedding = embeddings.embed_query(user.get('about_me', ''))
+            actions.append({
+                "_index": self.user_index,
+                "_id": user['user_id'],
+                "_source": {
+                    **user,
+                    "about_me_vector": embedding
+                }
+            })
+        
+        helpers.bulk(es, actions)
+        logging.info(f"Indexed {len(actions)} users")
+
+    def _index_startups(self):
+        """Bulk index all startups"""
+        startups = self.supabase.client.table("startup_table").select("*").execute()
+        
+        actions = []
+        for startup in startups.data:
+            embedding = embeddings.embed_query(startup.get('about_content', ''))
+            actions.append({
+                "_index": self.startup_index,
+                "_id": startup['startup_id'],
+                "_source": {
+                    **startup,
+                    "about_content_vector": embedding
+                }
+            })
+        
+        helpers.bulk(es, actions)
+        logging.info(f"Indexed {len(actions)} startups")
+
+    def _make_query(self, query, embed, vec_field, search_type, limit):
+        """Return an ES DSL body that targets the given vector field."""
+        body = {
+            "size": limit,
+            "query": {"bool": {"should": []}}
+        }
+
+        # text relevance
+        if search_type in ("text", "hybrid"):
+            body["query"]["bool"]["should"].append({
+                "multi_match": {
+                    "query":  query,
+                    "fields": [
+                        "name^3", "about_me", "about_content",
+                        "major", "industry", "university"
+                    ]
+                }
+            })
+
+        # vector relevance
+        if search_type in ("vector", "hybrid"):
+            body["query"]["bool"]["should"].append({
+                "script_score": {
+                    "query": {"match_all": {}},
+                    "script": {
+                        "source": "cosineSimilarity(params.qv, params.field) + 1.0",
+                        "params": {"qv": embed, "field": vec_field}
+                    }
+                }
+            })
+        return body
+
+    # ---------- replace the entire existing search() method ----------
+    def search(self, query: str, search_type: str = "hybrid", limit: int = 10):
+        """Run text / vector / hybrid search across both indices."""
+        query_embedding = embeddings.embed_query(query)
+
+        # Build one body per index, each with its correct vector field
+        user_query    = self._make_query(query, query_embedding,
+                                         "about_me_vector",
+                                         search_type, limit)
+
+        startup_query = self._make_query(query, query_embedding,
+                                         "about_content_vector",
+                                         search_type, limit)
+
+        # Execute
+        user_hits    = es.search(index=self.user_index,    body=user_query)["hits"]["hits"]
+        startup_hits = es.search(index=self.startup_index, body=startup_query)["hits"]["hits"]
+
+        # Return just _source (add _score if you like)
+        return {
+            "users":    [hit["_source"] for hit in user_hits],
+            "startups": [hit["_source"] for hit in startup_hits],
+        }
+
+# Initialize the search manager
+search_manager = ElasticSearchManager()
+
+@app.route('/search/reindex', methods=['POST'])
+def reindex():
+    """Endpoint to trigger reindexing of all data"""
+    try:
+        search_manager.index_all_data()
+        return jsonify({"success": True, "message": "Data reindexed successfully"})
+    except Exception as e:
+        logging.error(f"Reindexing failed: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/search', methods=['GET'])
+def search():
+    """Main search endpoint"""
+    try:
+        query = request.args.get('q')
+        if not query:
+            return jsonify({"error": "Query parameter 'q' is required"}), 400
+
+        search_type = request.args.get('type', 'hybrid')
+        limit = int(request.args.get('limit', 10))
+
+        results = search_manager.search(query, search_type, limit)
+        return jsonify({
+            "success": True,
+            "results": results
+        })
+    except Exception as e:
+        logging.error(f"Search failed: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+# Health check endpoint
+@app.route("/search/health", methods=["GET"])
+def health_check():
+    """
+    GET /search/health
+    Returns:
+        {
+            "status": "healthy" | "unavailable",
+            "indices": {
+                "users":    true | false,
+                "startups": true | false
+            }
+        }
+    """
+    try:
+        # Ping cluster
+        cluster_ok = es.ping()                          # True/False
+
+        # HeadApiResponse ➜ bool  (status 200 == exists)
+        users_exists    = es.indices.exists(
+            index=search_manager.user_index
+        ).meta.status == 200
+
+        startups_exists = es.indices.exists(
+            index=search_manager.startup_index
+        ).meta.status == 200
+
+        return jsonify(
+            status="healthy" if cluster_ok else "unavailable",
+            indices={
+                "users":    users_exists,
+                "startups": startups_exists,
+            },
+        ), 200
+
+    except Exception as exc:
+        logging.exception("Elasticsearch health-check failed")
+        return jsonify(status="error", details=str(exc)), 500
 if __name__ == '__main__':
     print("Starting Flask server...")
     print("Server will be available at:")
