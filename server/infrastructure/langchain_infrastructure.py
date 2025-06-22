@@ -4,14 +4,14 @@ from dotenv import load_dotenv
 from langchain.agents import AgentExecutor, create_react_agent
 import torch
 import json
-from custom_retrievers import CustomElasticsearchResumeRetriever
+from infrastructure.custom_retrievers import CustomElasticsearchResumeRetriever, CustomElasticsearchStartupRetriever
 from langchain_openai import ChatOpenAI
 from langchain.chains import RetrievalQA, LLMChain
 from langchain.prompts import PromptTemplate
 from langchain.chains.combine_documents.stuff import StuffDocumentsChain
-from elasticsearch_inf import Elasticsearch_Inf
+from infrastructure.elasticsearch_inf import Elasticsearch_Inf
 from langchain.agents import tool
-from supabase_inf import Supabase_Infrastructure
+from infrastructure.supabase_inf import Supabase_Infrastructure
 from langchain_core.prompts import ChatPromptTemplate
 import openai
 from functools import partial
@@ -51,20 +51,37 @@ Answer:
 SUPABASE_INF = Supabase_Infrastructure()
 elasticsearch_inf = Elasticsearch_Inf()
 def tool_helper(query):
-    list_output = CustomElasticsearchResumeRetriever(elasticsearch_inf.client, "user_index3")._get_relevant_documents(query)
-    ids_list = []
-    for doc in list_output:
-        ids_list.append(doc.metadata["id"])
-    print(ids_list)
-    return ids_list
+        list_output = CustomElasticsearchResumeRetriever(elasticsearch_inf.client, "user_index3")._get_relevant_documents(query)
+        ids_list = []
+        for doc in list_output:
+            ids_list.append(doc.metadata["id"])
+        print(ids_list)
+        return ids_list
+
+def startup_tool_helper(query):
+        list_output = CustomElasticsearchStartupRetriever(elasticsearch_inf.client, "startup_index")._get_relevant_documents(query)
+        ids_list = []
+        for doc in list_output:
+            ids_list.append(doc.metadata["id"])
+        print(ids_list)
+        return ids_list
+
 @tool
 def return_relevant_users(query):
-        """"Suggests potential cofounders matching the query,
-        it returns the output in the format <RELEVANT_USERS>...<RELEVANT_USERS>"""
-        user_ids = tool_helper(query)
-        users = []
+            """"Suggests potential cofounders matching the query,
+            it returns the output in the format <RELEVANT_USERS>...<RELEVANT_USERS>"""
+            user_ids = tool_helper(query)
+            users = []
 
-        return f"<USER_IDS>{user_ids}</USER_IDS>"
+            return f"<USER_IDS>{user_ids}</USER_IDS>"
+@tool
+def return_relevant_startups(query):
+            """"Suggests potential startups matching the query,
+            it returns the output in the format <RELEVANT_STARTUPS>...<RELEVANT_STARTUPS>"""
+            startup_ids = startup_tool_helper(query)
+            startups = []
+            return f"<STARTUP_IDS>{startup_ids}</STARTUP_IDS>"
+        
 class LangChain_Inf:
     def __init__(self):
         self.client = elasticsearch_inf.client
@@ -75,7 +92,7 @@ class LangChain_Inf:
        
     def setup_chains(self):
         #self.llm = HuggingFacePipeline(pipeline=self.pipeline)
-        self.llm = ChatOpenAI(model="gpt-3.5-turbo-0125", temperature=0)
+        self.llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0)
         self.resume_prompt = PromptTemplate(
             template=TEMPLATE_RESUME,
             input_variables=["context", "question"]
@@ -140,6 +157,7 @@ class LangChain_Inf:
 
 
     def agent_user_qa(self, user_id, question):
+        print("in agent user  qa")
         prompt = ChatPromptTemplate.from_template("""
             Answer the following question as best you can. You have access to the following tools:
 
@@ -155,8 +173,8 @@ class LangChain_Inf:
             ... (this Thought/Action/Action Input/Observation can repeat N times)
             Thought: I now know the final answer
             Final Answer: the final answer to the original question
-            Don't modify the brackets <USER_IDS> OUTPUT_FROM_TOOL </USER_IDS>
-            Example output: Here are the users: <USER_IDS> 1, 2 </USER_IDS>
+            Don't modify the brackets <USER_IDS> OUTPUT_FROM_TOOL </USER_IDS> DO NOT MODIFY THE OUTPUT ALSO DO NOT MODIFY <STARTUP_IDS> OUTPUT_FROM_TOOL </STARTUP_IDS>
+            Example output: Here are the users: <USER_IDS> 1, 2 </USER_IDS> THIS IS THE GROUND TRUTH
 
             Begin!
            
@@ -165,10 +183,11 @@ class LangChain_Inf:
         # create an llm agent which has a tool to return relevant user_ids
         # create a tool to return relevant user_ids
         # create an llm agent which has a tool to return relevant user_ids
-        tool = Tool.from_function(func=return_relevant_users, name="return_relevant_users", description="Suggests potential cofounders based on the query")
-        agent = create_react_agent(self.llm, [tool], prompt=prompt)
-        agent_executor = AgentExecutor(agent=agent, tools=[tool], verbose=True, handle_parsing_errors=True)
-        return agent_executor.invoke({"input": question})
+        tool = Tool.from_function(func=return_relevant_users, name="return_relevant_users", description="Suggests potential cofounders based on the query only use when explicitly asked to suggest cofounders.")
+        startup_tool = Tool.from_function(func=return_relevant_startups, name="return_relevant_startups", description="Suggests potential startups based on the query, only use when explicitly asked to suggest startups")
+        agent = create_react_agent(self.llm, [tool, startup_tool], prompt=prompt)
+        agent_executor = AgentExecutor(agent=agent, tools=[tool, startup_tool], verbose=True, handle_parsing_errors=True)
+        return agent_executor.invoke({"input": question})["output"]
 
 
     
@@ -288,11 +307,11 @@ Custom AI Solutions (RedMane Technology): Devised a scalable indexing system cap
 Generative AI for Learning: Developed an LLM-powered full-stack app to customize educational experiences, enhancing STEM learning outcomes.
 Let's Connect!
 I am passionate about solving complex challenges with cutting-edge AI, fostering innovation, and mentoring aspiring technologists. Whether you're an entrepreneur, investor, or technologist, I look forward to collaborating on transformative projects."""
-if __name__ == "__main__":
-    search_and_embeddings_infrastructure = LangChain_Inf()
-    #search_and_embeddings_infrastructure.index_embeddings(1, SAMPLE_RESUME, SAMPLE_PROFILE)
-    # response = search_and_embeddings_infrastructure.qa_user_id("What is the name and role of the user", 60)
-    response = search_and_embeddings_infrastructure.agent_user_qa(1, "Suggest me potential cofounders specialized in Ai")
+# if __name__ == "__main__":
+#     search_and_embeddings_infrastructure = LangChain_Inf()
+#     #search_and_embeddings_infrastructure.index_embeddings(1, SAMPLE_RESUME, SAMPLE_PROFILE)
+#     # response = search_and_embeddings_infrastructure.qa_user_id("What is the name and role of the user", 60)
+#     response = search_and_embeddings_infrastructure.agent_user_qa(1, "Suggest me potential cofounders specialized in Ai")
     
-    print(response)
+#     print(response)
 

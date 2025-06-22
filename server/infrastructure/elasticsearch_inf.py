@@ -1,7 +1,7 @@
 from elasticsearch import Elasticsearch
 from dotenv import load_dotenv
 import os
-from custom_retrievers import CustomElasticsearchResumeRetriever
+from infrastructure.custom_retrievers import CustomElasticsearchResumeRetriever
 load_dotenv()
 
 client = Elasticsearch(

@@ -10,6 +10,20 @@ export default function ChatInputBar({
 }) {
   const [message, setMessage] = useState('');
 
+  const handleSend = () => {
+    if (message.trim()) {
+      onSendMessage(message.trim());
+      setMessage('');
+    }
+  };
+
+  const handleKeyPress = (event) => {
+    if (event.nativeEvent.key === 'Enter' && !event.nativeEvent.shiftKey) {
+      event.preventDefault();
+      handleSend();
+    }
+  };
+
   return (
     <View style={styles.container}>
       <TouchableOpacity style={styles.leftSquare}>
@@ -28,12 +42,26 @@ export default function ChatInputBar({
         multiline={true}
         textAlignVertical="top"
         maxLength={1000}
+        onKeyPress={handleKeyPress}
+        returnKeyType="send"
+        onSubmitEditing={handleSend}
       />
       <TouchableOpacity style={styles.iconButton} onPress={onSendImage}>
         <Ionicons name="image-outline" size={24} color="#0ACF83" />
       </TouchableOpacity>
       <TouchableOpacity style={styles.iconButton} onPress={onRecordAudio}>
         <MaterialIcons name="keyboard-voice" size={24} color="#0ACF83" />
+      </TouchableOpacity>
+      <TouchableOpacity 
+        style={[styles.iconButton, styles.sendButton, !message.trim() && styles.sendButtonDisabled]} 
+        onPress={handleSend}
+        disabled={!message.trim()}
+      >
+        <Ionicons 
+          name="send" 
+          size={24} 
+          color={message.trim() ? "#0ACF83" : "#ccc"} 
+        />
       </TouchableOpacity>
     </View>
   );
@@ -82,5 +110,13 @@ const styles = StyleSheet.create({
     padding: 6,
     marginLeft: 2,
     alignSelf: 'flex-end',
+  },
+  sendButton: {
+    padding: 6,
+    marginLeft: 2,
+    alignSelf: 'flex-end',
+  },
+  sendButtonDisabled: {
+    opacity: 0.5,
   },
 }); 

@@ -11,11 +11,13 @@ from langchain.globals import set_llm_cache
 import logging
 import random
 from infrastructure.supabase_inf import Supabase_Infrastructure
+from infrastructure.langchain_infrastructure import LangChain_Inf
 
 set_llm_cache(None)
 
 app = Flask(__name__)
 CORS(app)
+LANGCHAIN_INF = LangChain_Inf()
 
 class StartupManager:
     def __init__(self):
@@ -143,6 +145,56 @@ def load_users_swipe():
         return jsonify({"success": False, "error": str(e)}), 500
 
     return jsonify({"success": 200, "content": users})
+
+@app.route('/agent_user_qa', methods=['POST'])
+def agent_user_qa():
+    print(request.json)
+    user_id = request.json.get('user_id', '')
+    question = request.json.get('question', '')
+    print(user_id, question)
+    response = LANGCHAIN_INF.agent_user_qa(user_id, question)
+    print("\n\n\n\nsuccess response\n\n\n\n")
+    print(response)
+    supabase_inf = Supabase_Infrastructure()
+    # response = " Here are the users specialized in AI: <USER_IDS> 546, 1318, 1238, 1186, 1871, 268, 1030, 1485, 79, 486, 1111, 443, 54, 1415, 1645, 1364, 648, 964, 644, 1137 </USER_IDS>"
+    if "<USER_IDS>" in response:
+        user_ids = response.split("<USER_IDS>")[1].split("</USER_IDS>")[0]
+        user_ids = user_ids.replace("[", "")
+        user_ids = user_ids.replace("]", "")
+        user_ids = user_ids.replace("'", "")
+        user_ids = user_ids.split(",")
+        user_ids = [int(user_id) for user_id in user_ids]
+        print(user_ids)
+        users = []
+        # use supabase to get the users
+        
+        for user_id in user_ids:
+            user = supabase_inf.get_user_by_id(user_id)
+            user["seed"] = random.randint(0, 100)
+            users.append(user)
+        return jsonify({"success": True, "content": users, "type": "user_ids"})
+    
+    if "<STARTUP_IDS>" in response:
+        startup_ids = response.split("<STARTUP_IDS>")[1].split("</STARTUP_IDS>")[0]
+        startup_ids = startup_ids.replace("[", "")
+        startup_ids = startup_ids.replace("]", "")
+        startup_ids = startup_ids.replace("'", "")
+        startup_ids = startup_ids.split(",")
+        startup_ids = [int(startup_id) for startup_id in startup_ids]
+        print(startup_ids)
+        startups = []
+        for startup_id in startup_ids:
+            startup = supabase_inf.get_startup_by_id(startup_id)
+            startups.append(startup)
+        return jsonify({"success": True, "content": startups, "type": "startup_ids"})
+
+    return jsonify({"success": True, "content": response, "type": "text"})
+
+@app.route('/get_user_by_id', methods=['POST'])
+def get_user_by_id():
+    print(request.json.get("user_id"), '')
+    return jsonify({"success": True, "content": ""})
+
 
 @app.route('/ask/<startup_id>', methods=['POST'])
 def ask(startup_id):
