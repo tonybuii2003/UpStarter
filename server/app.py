@@ -8,11 +8,12 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.runnables import RunnablePassthrough
 from langchain.globals import set_llm_cache
-from elasticsearch import Elasticsearch
+from elasticsearch import Elasticsearch, helpers
 from langchain_community.vectorstores import ElasticsearchStore
 import json
 import logging
 import random
+import os
 from infrastructure.supabase_inf import Supabase_Infrastructure
 
 set_llm_cache(None)
@@ -485,118 +486,264 @@ def get_startup(startup_id):
     except Exception as e:
         logging.error(f"Error in get_startup endpoint: {str(e)}")
         return jsonify({"success": False, "error": "Internal server error"}), 500
-es = Elasticsearch("http://localhost:9200")  # Update with your ES URL
+es = Elasticsearch(
+    ["https://my-elasticsearch-project-b7242c.es.us-central1.gcp.elastic.cloud:443"],  # Or your cloud URL
+    api_key=os.getenv("ELASTICSEARCH_API_KEY"),
+    verify_certs=False,
+    timeout=30,  # seconds
+    max_retries=3,
+    retry_on_timeout=True
+)
 embeddings = OpenAIEmbeddings()
+# ---------------- mappings.py (or keep in ElasticSearchManager) ----------------
+USER_MAPPING = {
+    "mappings": {
+        "properties": {
+            "user_id":      {"type": "keyword"},
+            "name":         {"type": "text"},
+            "university":   {"type": "keyword"},
+            "major":        {"type": "keyword"},
+            "about_me":     {"type": "text"},
 
-class SearchManager:
-    def __init__(self):
-        self.supabase = Supabase_Infrastructure()
-        self.index_name = "startup_matcher"
-        
-    def index_data(self):
-        """Index both users and startups into Elasticsearch"""
-        # Index users
-        users = self.supabase.client.table("user_table").select("*").execute()
-        for user in users.data:
-            es.index(
-                index=f"{self.index_name}_users",
-                id=user['user_id'],
-                body={
-                    "name": user.get('name'),
-                    "university": user.get('university'),
-                    "major": user.get('major'),
-                    "education_level": user.get('education_level'),
-                    "is_cofounder": user.get('is_cofounder'),
-                    "about_me": user.get('about_me'),
-                    "embedding": embeddings.embed_query(user.get('about_me', ''))
-                }
-            )
-        
-        # Index startups
-        startups = self.supabase.client.table("startup_table").select("*").execute()
-        for startup in startups.data:
-            es.index(
-                index=f"{self.index_name}_startups",
-                id=startup['startup_id'],
-                body={
-                    "name": startup.get('name'),
-                    "industry": startup.get('industry'),
-                    "about_content": startup.get('about_content'),
-                    "business_plan_content": startup.get('business_plan_content'),
-                    "embedding": embeddings.embed_query(startup.get('about_content', ''))
-                }
-            )
+            # >>> top-level dense_vector, no multi-field <<<
+            "about_me_vector": {
+                "type":       "dense_vector",
+                "dims":       1536,
+                "index":      True,
+                "similarity": "cosine"
+            },
 
-    def semantic_search(self, query: str, search_type: str = "both", limit: int = 5):
-        """Perform hybrid search across users and startups"""
-        query_embedding = embeddings.embed_query(query)
-        
-        # Elasticsearch semantic search
-        if search_type in ["both", "users"]:
-            user_results = es.search(
-                index=f"{self.index_name}_users",
-                body={
-                    "query": {
-                        "script_score": {
-                            "query": {"match": {"about_me": query}},
-                            "script": {
-                                "source": """
-                                    cosineSimilarity(params.query_vector, 'embedding') + 1.0
-                                """,
-                                "params": {"query_vector": query_embedding}
-                            }
-                        }
-                    },
-                    "size": limit
-                }
-            )
-        
-        if search_type in ["both", "startups"]:
-            startup_results = es.search(
-                index=f"{self.index_name}_startups",
-                body={
-                    "query": {
-                        "script_score": {
-                            "query": {"match": {"about_content": query}},
-                            "script": {
-                                "source": """
-                                    cosineSimilarity(params.query_vector, 'embedding') + 1.0
-                                """,
-                                "params": {"query_vector": query_embedding}
-                            }
-                        }
-                    },
-                    "size": limit
-                }
-            )
-        
-        # Combine and format results
-        results = {
-            "users": [hit["_source"] for hit in user_results.get('hits', {}).get('hits', [])],
-            "startups": [hit["_source"] for hit in startup_results.get('hits', {}).get('hits', [])]
+            "is_cofounder": {"type": "boolean"}
         }
+    }
+}
+
+STARTUP_MAPPING = {
+    "mappings": {
+        "properties": {
+            "startup_id":   {"type": "keyword"},
+            "name":         {"type": "text"},
+            "industry":     {"type": "keyword"},
+            "about_content":{"type": "text"},
+
+            "about_content_vector": {
+                "type":       "dense_vector",
+                "dims":       1536,
+                "index":      True,
+                "similarity": "cosine"
+            },
+
+            "cofounders":   {"type": "keyword"}
+        }
+    }
+}
+
+class ElasticSearchManager:
+    def __init__(self):
+        self.supabase      = Supabase_Infrastructure()
+        self.user_index    = "user_index3"
+        self.startup_index = "startup_index"
+        self._ensure_indices_exist()
+
+    def _ensure_indices_exist(self):
+        """Create the two indices with correct mappings if they do not exist."""
+        if not es.indices.exists(index=self.user_index):
+            es.indices.create(index=self.user_index, body=USER_MAPPING)
+
+        if not es.indices.exists(index=self.startup_index):
+            es.indices.create(index=self.startup_index, body=STARTUP_MAPPING)
+    def _build_query(self, query, query_embedding, field_name, search_type, limit):
+        q = {
+            "size": limit,
+            "query": {"bool": {"should": []}}
+        }
+        if search_type in ("text", "hybrid"):
+            q["query"]["bool"]["should"].append({
+                "multi_match": {
+                    "query":  query,
+                    "fields": ["name^3", "about_me^2", "major", "university", "about_content", "industry"]
+                }
+            })
+        if search_type in ("vector", "hybrid"):
+            q["query"]["bool"]["should"].append({
+                "script_score": {
+                    "query": {"match_all": {}},
+                    "script": {
+                        "source": "cosineSimilarity(params.qv, params.field) + 1.0",
+                        "params": {"qv": query_embedding, "field": field_name}
+                    }
+                }
+            })
+        return q
+    def index_all_data(self):
+        """Index all users and startups from Supabase"""
+        self._index_users()
+        self._index_startups()
+
+    def _index_users(self):
+        """Bulk index all users"""
+        users = self.supabase.client.table("user_table").select("*").execute()
         
-        return results
+        actions = []
+        for user in users.data:
+            embedding = embeddings.embed_query(user.get('about_me', ''))
+            actions.append({
+                "_index": self.user_index,
+                "_id": user['user_id'],
+                "_source": {
+                    **user,
+                    "about_me_vector": embedding
+                }
+            })
+        
+        helpers.bulk(es, actions)
+        logging.info(f"Indexed {len(actions)} users")
 
-search_manager = SearchManager()
+    def _index_startups(self):
+        """Bulk index all startups"""
+        startups = self.supabase.client.table("startup_table").select("*").execute()
+        
+        actions = []
+        for startup in startups.data:
+            embedding = embeddings.embed_query(startup.get('about_content', ''))
+            actions.append({
+                "_index": self.startup_index,
+                "_id": startup['startup_id'],
+                "_source": {
+                    **startup,
+                    "about_content_vector": embedding
+                }
+            })
+        
+        helpers.bulk(es, actions)
+        logging.info(f"Indexed {len(actions)} startups")
 
-# Add new endpoint
+    def _make_query(self, query, embed, vec_field, search_type, limit):
+        """Return an ES DSL body that targets the given vector field."""
+        body = {
+            "size": limit,
+            "query": {"bool": {"should": []}}
+        }
+
+        # text relevance
+        if search_type in ("text", "hybrid"):
+            body["query"]["bool"]["should"].append({
+                "multi_match": {
+                    "query":  query,
+                    "fields": [
+                        "name^3", "about_me", "about_content",
+                        "major", "industry", "university"
+                    ]
+                }
+            })
+
+        # vector relevance
+        if search_type in ("vector", "hybrid"):
+            body["query"]["bool"]["should"].append({
+                "script_score": {
+                    "query": {"match_all": {}},
+                    "script": {
+                        "source": "cosineSimilarity(params.qv, params.field) + 1.0",
+                        "params": {"qv": embed, "field": vec_field}
+                    }
+                }
+            })
+        return body
+
+    # ---------- replace the entire existing search() method ----------
+    def search(self, query: str, search_type: str = "hybrid", limit: int = 10):
+        """Run text / vector / hybrid search across both indices."""
+        query_embedding = embeddings.embed_query(query)
+
+        # Build one body per index, each with its correct vector field
+        user_query    = self._make_query(query, query_embedding,
+                                         "about_me_vector",
+                                         search_type, limit)
+
+        startup_query = self._make_query(query, query_embedding,
+                                         "about_content_vector",
+                                         search_type, limit)
+
+        # Execute
+        user_hits    = es.search(index=self.user_index,    body=user_query)["hits"]["hits"]
+        startup_hits = es.search(index=self.startup_index, body=startup_query)["hits"]["hits"]
+
+        # Return just _source (add _score if you like)
+        return {
+            "users":    [hit["_source"] for hit in user_hits],
+            "startups": [hit["_source"] for hit in startup_hits],
+        }
+
+# Initialize the search manager
+search_manager = ElasticSearchManager()
+
+@app.route('/search/reindex', methods=['POST'])
+def reindex():
+    """Endpoint to trigger reindexing of all data"""
+    try:
+        search_manager.index_all_data()
+        return jsonify({"success": True, "message": "Data reindexed successfully"})
+    except Exception as e:
+        logging.error(f"Reindexing failed: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
 @app.route('/search', methods=['GET'])
 def search():
-    query = request.args.get('q')
-    search_type = request.args.get('type', 'both')  # 'users', 'startups', or 'both'
-    
-    if not query:
-        return jsonify({"error": "Query parameter 'q' is required"}), 400
-    
+    """Main search endpoint"""
     try:
-        results = search_manager.semantic_search(query, search_type)
+        query = request.args.get('q')
+        if not query:
+            return jsonify({"error": "Query parameter 'q' is required"}), 400
+
+        search_type = request.args.get('type', 'hybrid')
+        limit = int(request.args.get('limit', 10))
+
+        results = search_manager.search(query, search_type, limit)
         return jsonify({
             "success": True,
             "results": results
         })
     except Exception as e:
-        logging.error(f"Search error: {str(e)}")
+        logging.error(f"Search failed: {str(e)}")
         return jsonify({"success": False, "error": str(e)}), 500
+
+# Health check endpoint
+@app.route("/search/health", methods=["GET"])
+def health_check():
+    """
+    GET /search/health
+    Returns:
+        {
+            "status": "healthy" | "unavailable",
+            "indices": {
+                "users":    true | false,
+                "startups": true | false
+            }
+        }
+    """
+    try:
+        # Ping cluster
+        cluster_ok = es.ping()                          # True/False
+
+        # HeadApiResponse ➜ bool  (status 200 == exists)
+        users_exists    = es.indices.exists(
+            index=search_manager.user_index
+        ).meta.status == 200
+
+        startups_exists = es.indices.exists(
+            index=search_manager.startup_index
+        ).meta.status == 200
+
+        return jsonify(
+            status="healthy" if cluster_ok else "unavailable",
+            indices={
+                "users":    users_exists,
+                "startups": startups_exists,
+            },
+        ), 200
+
+    except Exception as exc:
+        logging.exception("Elasticsearch health-check failed")
+        return jsonify(status="error", details=str(exc)), 500
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000, debug=True)
