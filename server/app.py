@@ -5,9 +5,11 @@ from typing import Dict, Optional
 from dotenv import load_dotenv
 load_dotenv()
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.runnables import RunnablePassthrough
 from langchain.globals import set_llm_cache
+from elasticsearch import Elasticsearch
+from langchain_community.vectorstores import ElasticsearchStore
 import json
 import logging
 import random
@@ -352,8 +354,7 @@ def ask_stream(startup_id):
         return jsonify({"error": "Internal server error"}), 500
 @app.before_request
 def limit_requests():
-    # Simple rate limiting - adjust as needed
-    time.sleep(0.1)  # Add small delay between requests
+    time.sleep(0.1)
 
 @app.route('/startups', methods=['GET'])
 def list_startups():
@@ -484,5 +485,118 @@ def get_startup(startup_id):
     except Exception as e:
         logging.error(f"Error in get_startup endpoint: {str(e)}")
         return jsonify({"success": False, "error": "Internal server error"}), 500
+es = Elasticsearch("http://localhost:9200")  # Update with your ES URL
+embeddings = OpenAIEmbeddings()
+
+class SearchManager:
+    def __init__(self):
+        self.supabase = Supabase_Infrastructure()
+        self.index_name = "startup_matcher"
+        
+    def index_data(self):
+        """Index both users and startups into Elasticsearch"""
+        # Index users
+        users = self.supabase.client.table("user_table").select("*").execute()
+        for user in users.data:
+            es.index(
+                index=f"{self.index_name}_users",
+                id=user['user_id'],
+                body={
+                    "name": user.get('name'),
+                    "university": user.get('university'),
+                    "major": user.get('major'),
+                    "education_level": user.get('education_level'),
+                    "is_cofounder": user.get('is_cofounder'),
+                    "about_me": user.get('about_me'),
+                    "embedding": embeddings.embed_query(user.get('about_me', ''))
+                }
+            )
+        
+        # Index startups
+        startups = self.supabase.client.table("startup_table").select("*").execute()
+        for startup in startups.data:
+            es.index(
+                index=f"{self.index_name}_startups",
+                id=startup['startup_id'],
+                body={
+                    "name": startup.get('name'),
+                    "industry": startup.get('industry'),
+                    "about_content": startup.get('about_content'),
+                    "business_plan_content": startup.get('business_plan_content'),
+                    "embedding": embeddings.embed_query(startup.get('about_content', ''))
+                }
+            )
+
+    def semantic_search(self, query: str, search_type: str = "both", limit: int = 5):
+        """Perform hybrid search across users and startups"""
+        query_embedding = embeddings.embed_query(query)
+        
+        # Elasticsearch semantic search
+        if search_type in ["both", "users"]:
+            user_results = es.search(
+                index=f"{self.index_name}_users",
+                body={
+                    "query": {
+                        "script_score": {
+                            "query": {"match": {"about_me": query}},
+                            "script": {
+                                "source": """
+                                    cosineSimilarity(params.query_vector, 'embedding') + 1.0
+                                """,
+                                "params": {"query_vector": query_embedding}
+                            }
+                        }
+                    },
+                    "size": limit
+                }
+            )
+        
+        if search_type in ["both", "startups"]:
+            startup_results = es.search(
+                index=f"{self.index_name}_startups",
+                body={
+                    "query": {
+                        "script_score": {
+                            "query": {"match": {"about_content": query}},
+                            "script": {
+                                "source": """
+                                    cosineSimilarity(params.query_vector, 'embedding') + 1.0
+                                """,
+                                "params": {"query_vector": query_embedding}
+                            }
+                        }
+                    },
+                    "size": limit
+                }
+            )
+        
+        # Combine and format results
+        results = {
+            "users": [hit["_source"] for hit in user_results.get('hits', {}).get('hits', [])],
+            "startups": [hit["_source"] for hit in startup_results.get('hits', {}).get('hits', [])]
+        }
+        
+        return results
+
+search_manager = SearchManager()
+
+# Add new endpoint
+@app.route('/search', methods=['GET'])
+def search():
+    query = request.args.get('q')
+    search_type = request.args.get('type', 'both')  # 'users', 'startups', or 'both'
+    
+    if not query:
+        return jsonify({"error": "Query parameter 'q' is required"}), 400
+    
+    try:
+        results = search_manager.semantic_search(query, search_type)
+        return jsonify({
+            "success": True,
+            "results": results
+        })
+    except Exception as e:
+        logging.error(f"Search error: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000, debug=True)
