@@ -8,6 +8,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from langchain_core.runnables import RunnablePassthrough
 from langchain.globals import set_llm_cache
+import json
 import logging
 import random
 from infrastructure.supabase_inf import Supabase_Infrastructure
@@ -223,22 +224,46 @@ def ask(startup_id):
         logging.error(f"Error in ask endpoint: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
 
-@app.route('/ask_stream/<startup_id>', methods=['POST'])
+@app.route('/ask_stream/<startup_id>', methods=['POST', 'GET'])
 def ask_stream(startup_id):
     try:
-        supabase_inf = Supabase_Infrastructure()
+        # Validate request
+        question = ""
+        print(f"Request method: {request.method}")
+        # Handle both GET (query param) and POST (JSON body) requests
+        if request.method == 'GET':
+            question = request.args.get('query', '')
+            print(f"Received GET question: {question}")
+            # print request
+            print(f"Full request args: {request.args}")
+        else:
+            # For POST, try to get JSON body, but don't require it
+            if request.is_json:
+                data = request.get_json()
+                question = data.get('question', '')
+                print(f"Received POST question: {question}")
+                print(f"Full request JSON: {data}")
+            else:
+                # Fallback to form data if not JSON
+                print("Request is not JSON, checking form data")
+                question = request.form.get('query', '')
         
-        # 1. Fetch startup data (same as /ask endpoint)
+        if not question:
+            return jsonify({"error": "Question is required"}), 400
+
+        # Fetch startup data
+        supabase_inf = Supabase_Infrastructure()
         startup_data = supabase_inf.client.table("startup_table") \
             .select("*") \
             .eq("startup_id", startup_id) \
             .execute()
-        
+            
         if not startup_data.data:
             return jsonify({"error": "Startup not found"}), 404
             
         startup = startup_data.data[0]
         
+        # Parse cofounder IDs from string like "(2, 1482)"
         # 2. Parse cofounder IDs
         cofounder_ids = []
         if startup.get('cofounders'):
@@ -278,36 +303,57 @@ def ask_stream(startup_id):
         if not founders:
             return jsonify({"error": "No founders found for this startup"}), 404
         
-        # 4. Set up QA system
+        # Set up QA system with only existing fields
         qa_system.current_startup = {
             "id": str(startup['startup_id']),
             "name": startup['name'],
             "description": startup.get('about_content', ''),
+            "industry": startup.get('industry', ''),
+            "logo": startup.get('logo_path', ''),
             "founders": founders
         }
         qa_system.setup_qa_chain()
         
-        # 5. Stream response
-        question = request.json.get('question', '')
-        if not question:
-            return jsonify({"error": "Question is required"}), 400
-        
+        # Stream response
         def generate():
             try:
-                for chunk in qa_system.qa_chain.stream({"question": question}):
-                    if hasattr(chunk, 'content'):
-                        yield f"data: {chunk.content}\n\n"
-                    elif isinstance(chunk, dict) and 'response' in chunk:
-                        yield f"data: {chunk['response']}\n\n"
-                    time.sleep(0.05)
+                process = qa_system.qa_chain.stream({"question": question})
+                buffer = ""
+                for chunk in process:
+                    # Convert chunk to string
+                    chunk_str = str(chunk.content) if hasattr(chunk, 'content') else str(chunk)
+                    buffer += chunk_str
+                    
+                    # Split by newlines to handle partial chunks
+                    while '\n' in buffer:
+                        line, buffer = buffer.split('\n', 1)
+                        yield f"data: {json.dumps({'text': line})}\n\n"
+                    
+                    # If no newline, send what we have
+                    if buffer:
+                        yield f"data: {json.dumps({'text': buffer})}\n\n"
+                        buffer = ""
             except Exception as e:
-                yield f"data: [ERROR] {str(e)}\n\n"
+                logging.error(f"Streaming error: {str(e)}")
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
         
-        return Response(stream_with_context(generate()), mimetype='text/event-stream')
+        return Response(
+            generate(),
+            mimetype='text/event-stream',
+            headers={
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive'
+            }
+        )
         
     except Exception as e:
-        logging.error(f"Error in ask_stream endpoint: {str(e)}")
+        logging.error(f"Endpoint error: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
+@app.before_request
+def limit_requests():
+    # Simple rate limiting - adjust as needed
+    time.sleep(0.1)  # Add small delay between requests
 
 @app.route('/startups', methods=['GET'])
 def list_startups():

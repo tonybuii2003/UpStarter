@@ -7,6 +7,7 @@ import { useEffect } from 'react';
 import { useNavigationContainerRef, useNavigation } from '@react-navigation/native';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5'
 import { ModeProvider } from './context/ModeContext';
+import ChatScreenStartup from './Pages/ChatScreenStartup';
 
 // Import auth screens
 import Welcome from './Pages/Auth/Welcome';
@@ -21,7 +22,7 @@ import Chats from './Pages/Chats';
 import UserPage from './Pages/UserPage';
 import CurrentChat from './Pages/CurrentChat';
 import ChatsStack from './Pages/ChatsStack';
-import FoundersChat from './Pages/FoundersChat';
+import FoundersChat from './Pages/ChatScreenStartup';
 import MatchingStartups from './Pages/MatchingStartups';
 import { useMode } from './context/ModeContext';
 
@@ -143,7 +144,7 @@ export default function App() {
           <Stack.Screen name="Login" component={Login} />
           <Stack.Screen name="Register" component={Register} />
           <Stack.Screen name="MainApp" component={MainTabs} />
-          <Stack.Screen name="FoundersChat" component={FoundersChat} />
+          <Stack.Screen name="ChatScreen" component={ChatScreenStartup} />
         </Stack.Navigator>
       </NavigationContainer>
     </ModeProvider>

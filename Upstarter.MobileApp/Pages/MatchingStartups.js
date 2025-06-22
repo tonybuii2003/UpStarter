@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 const { width: SCREEN_W } = Dimensions.get('window');
+import { useNavigation } from '@react-navigation/native';
 
 export default function StartupMatching() {
   const [isModalVisible, setModalVisible] = useState(false);
@@ -12,6 +13,7 @@ export default function StartupMatching() {
   const [potentialStartups, setPotentialStartups] = useState([]);
   const [currentStartupIndex, setCurrentStartupIndex] = useState(0);
   const [rejectedStartupIds, setRejectedStartupIds] = useState([]);
+  const navigation = useNavigation();
 
   const loadStartupsFromBackend = async (append = false) => {
     setIsLoading(true);
@@ -56,18 +58,21 @@ export default function StartupMatching() {
   }, [currentStartupIndex, potentialStartups.length]);
 
   const handleAccept = () => {
-    // Handle accept logic here
-    const currentStartup = getCurrentStartup();
-    console.log('Accepted startup:', currentStartup);
-    
-    // Move to next startup
-    if (currentStartupIndex < potentialStartups.length - 1) {
-      setCurrentStartupIndex(currentStartupIndex + 1);
-    } else {
-      // No more matches, reload
-      loadStartupsFromBackend(true);
-    }
-  };
+  const currentStartup = getCurrentStartup();
+  console.log('Accepted startup:', currentStartup);
+  
+  // Navigate to ChatScreen with the startup data
+  navigation.navigate('ChatScreen', { 
+    startup: currentStartup 
+  });
+  
+  // Move to next startup (if you want to keep this behavior)
+  if (currentStartupIndex < potentialStartups.length - 1) {
+    setCurrentStartupIndex(currentStartupIndex + 1);
+  } else {
+    loadStartupsFromBackend(true);
+  }
+};
 
   const handleReject = () => {
     const currentStartup = getCurrentStartup();
@@ -86,7 +91,7 @@ export default function StartupMatching() {
       loadStartupsFromBackend(true);
     }
   };
-
+  
   const getCurrentStartup = () => {
     if (potentialStartups.length === 0 || currentStartupIndex >= potentialStartups.length) {
       return null;
