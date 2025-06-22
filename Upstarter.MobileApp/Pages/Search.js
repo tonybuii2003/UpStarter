@@ -1,22 +1,44 @@
-import { StyleSheet, Text, View } from 'react-native';
+import React from 'react';
+import { StyleSheet, View, TextInput } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons'; // or any other icon library you prefer
 
-export default function Search() {
+export default function SearchBar() {
   return (
     <View style={styles.container}>
-      <Text style={styles.text}>Search Screen</Text>
+      <View style={styles.searchContainer}>
+        <MaterialIcons name="search" size={20} color="#999" style={styles.icon} />
+        <TextInput
+          style={styles.input}
+          placeholder="Search..."
+          placeholderTextColor="#999"
+        />
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
-    backgroundColor: '#41b06e',
+    padding: 16,
+  },
+  searchContainer: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#0ACF83',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    height: 48,
+    backgroundColor: '#fff',
   },
-  text: {
-    color: 'white',
-    fontSize: 20,
+  icon: {
+    marginRight: 8,
   },
-}); 
+  input: {
+    flex: 1,
+    height: '100%',
+    fontFamily: 'Comfortaa-Regular',
+    fontSize: 16,
+    color: '#333',
+  },
+});
