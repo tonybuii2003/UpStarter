@@ -14,7 +14,7 @@ import {
 import { Client } from '@langchain/langgraph-sdk';
 
 export default function FoundersChat() {
-  const [messages, setMessages] = useState([]);           // { id, role, text }
+  const [messages, setMessages] = useState([]);
   const [input, setInput]       = useState('');
   const threadRef               = useRef(null);
   const clientRef               = useRef(null);
