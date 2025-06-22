@@ -22,8 +22,6 @@ class Supabase_Infrastructure:
         return startup
 
 
-test = Supabase_Infrastructure()
-print(test.get_user_by_id(54))
 
 
 
