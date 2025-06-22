@@ -18,18 +18,19 @@ import {
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
-export default function PotentialMatch({ compact = false }) {
+export default function PotentialMatch({ compact = false, name="john doe", university="", major="", education_level="", about_me="" }) {
+  const avatar_url = "https://randomuser.me/api/portraits/men/" + Math.floor(Math.random() * 100) + ".jpg"
   return (
     <LinearGradient style={styles.card} colors={['#6A8DFF', '#1E4D91']}>
       {/* --- Top Section --- */}
       <View style={styles.topSection}>
         <View style={styles.profileCircle}>
           <Image
-            source={{ uri: 'https://randomuser.me/api/portraits/men/32.jpg' }}
+            source={{ uri: avatar_url }}
             style={styles.avatar}
           />
         </View>
-        <Text style={styles.name}>Julen</Text>
+        <Text style={styles.name}>{name}</Text>
       </View>
 
       {/* --- Info Pills --- */}
@@ -44,7 +45,17 @@ export default function PotentialMatch({ compact = false }) {
         </View>
         <View style={styles.infoPill}>
           <FontAwesome5 name="graduation-cap" size={14} color="#41b06e" />
-          <Text style={styles.infoText}>MIT</Text>
+          <Text style={styles.infoText}>{university}</Text>
+        </View>
+
+        <View style={styles.infoPill}>
+          <FontAwesome5 name="graduation-cap" size={14} color="#41b06e" />
+          <Text style={styles.infoText}>{major}</Text>
+        </View>
+
+        <View style={styles.infoPill}>
+          <FontAwesome5 name="graduation-cap" size={14} color="#41b06e" />
+          <Text style={styles.infoText}>{education_level}</Text>
         </View>
       </View>
 
@@ -52,7 +63,7 @@ export default function PotentialMatch({ compact = false }) {
       <View style={styles.aboutBox}>
         <Text style={styles.aboutTitle}>About me:</Text>
         <Text style={styles.aboutText}>
-          I'm a curious and motivated learner with a passion for startups and problem-solving. I’ve built small projects on my own and love working in fast-paced, creative environments. I'm excited to grow with a team where I can contribute, learn, and make real impact
+        {about_me}
         </Text>
       </View>
 
