@@ -16,7 +16,26 @@ from infrastructure.langchain_infrastructure import LangChain_Inf
 set_llm_cache(None)
 
 app = Flask(__name__)
-CORS(app)
+
+# Enhanced CORS configuration for tunneling
+CORS(app, resources={
+    r"/*": {
+        "origins": ["*"],  # Allow all origins for development
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
+        "expose_headers": ["Content-Type", "Authorization"]
+    }
+})
+
+# Add headers for tunneling compatibility
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    response.headers.add('Access-Control-Allow-Credentials', 'true')
+    return response
+
 LANGCHAIN_INF = LangChain_Inf()
 
 class StartupManager:
@@ -111,6 +130,10 @@ class FounderQA:
 # Initialize the QA system
 qa_system = FounderQA()
 
+@app.route('/health', methods=['GET'])
+def health_check():
+    return jsonify({"status": "healthy", "message": "Flask server is running"})
+
 @app.route('/test', methods=['GET'])
 def test():
     return jsonify({"success": 200, "content": "hello"})
@@ -145,6 +168,27 @@ def load_users_swipe():
         return jsonify({"success": False, "error": str(e)}), 500
 
     return jsonify({"success": 200, "content": users})
+
+@app.route('/agent_workspace', methods=['POST'])
+def agent_workspace():
+    print(request.json)
+
+    question = request.json.get('question', '')
+    print(question)
+    response = LANGCHAIN_INF.workspace_agent( question)
+    if "<BUSINESS_PLAN>" in response:
+        business_plan = response.split("<BUSINESS_PLAN>")[1].split("</BUSINESS_PLAN>")[0]
+        return jsonify({"success": True, "content": business_plan, "type": "business_plan"})
+    if "<MARKETING_PLAN>" in response:
+        marketing_plan = response.split("<MARKETING_PLAN>")[1].split("</MARKETING_PLAN>")[0]
+        return jsonify({"success": True, "content": marketing_plan, "type": "marketing_plan"})
+    if "<COMPANY_DESCRIPTION>" in response:
+        company_description = response.split("<COMPANY_DESCRIPTION>")[1].split("</COMPANY_DESCRIPTION>")[0]
+        return jsonify({"success": True, "content": company_description, "type": "company_description"})
+    if "<BUSINESS_OPPORTUNITY>" in response:
+        business_opportunity = response.split("<BUSINESS_OPPORTUNITY>")[1].split("</BUSINESS_OPPORTUNITY>")[0]
+        return jsonify({"success": True, "content": business_opportunity, "type": "business_opportunity"})
+    return jsonify({"success": True, "content": response})
 
 @app.route('/agent_user_qa', methods=['POST'])
 def agent_user_qa():
@@ -192,8 +236,11 @@ def agent_user_qa():
 
 @app.route('/get_user_by_id', methods=['POST'])
 def get_user_by_id():
-    print(request.json.get("user_id"), '')
-    return jsonify({"success": True, "content": ""})
+    supabase_inf = Supabase_Infrastructure()
+    user_id = request.json.get("user_id", '')
+    user_data = supabase_inf.get_user_by_id(f"{user_id}")
+    print(user_data)
+    return jsonify({"success": True, "content": user_data})
 
 
 @app.route('/ask/<startup_id>', methods=['POST'])
@@ -241,4 +288,17 @@ def list_startups():
     })
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000, debug=True)
+    print("Starting Flask server...")
+    print("Server will be available at:")
+    print("  - Local: http://localhost:8000")
+    print("  - Network: http://0.0.0.0:8000")
+    print("  - For tunneling, use ngrok: ngrok http 8000")
+    print("  - Health check: http://localhost:8000/health")
+    print("=" * 50)
+    
+    app.run(
+        host='0.0.0.0',  # Allow external connections
+        port=8000,       # Port 8000
+        debug=True,      # Debug mode for development
+        threaded=True    # Enable threading for multiple requests
+    )

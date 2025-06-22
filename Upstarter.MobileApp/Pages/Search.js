@@ -17,11 +17,12 @@ import ChatInputBar from '../Components/ChatInputBar';
 import SimplifiedPotentialMatch from '../Components/SimplifiedPotentialMatch';
 import SimplifiedMatchStartup from '../Components/SimplifiedMatchStartup';
 import { Ionicons } from '@expo/vector-icons';
+import { SERVER_URL } from '../constants/constants';
 
 // API call to the agent_user_qa endpoint
 const callAgentUserQA = async (user_id, query) => {
   try {
-    const response = await fetch('http://10.40.252.128:8000/agent_user_qa', {
+    const response = await fetch(`${SERVER_URL}/agent_user_qa`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, Image, Dimensions, Alert, ScrollView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { StyleSheet, Text, View, TouchableOpacity, Image, SafeAreaView, Dimensions, ScrollView, Alert } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
+import { SERVER_URL } from '../../constants/constants';
 
 export default function Welcome({ navigation }) {
   const [testResponse, setTestResponse] = useState(null);
@@ -12,7 +14,7 @@ export default function Welcome({ navigation }) {
     try {
       // Use your computer's IP address instead of localhost
       // You can find your IP by running 'ipconfig' on Windows or 'ifconfig' on Mac/Linux
-      const response = await axios.get('http://10.40.252.128:8000/load_users_swipe');
+      const response = await axios.get(`${SERVER_URL}/load_users_swipe`);
       setTestResponse(response.data.content);
       Alert.alert('Success', 'Backend connection successful!');
     } catch (error) {

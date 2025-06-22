@@ -5,6 +5,7 @@ import PotentialMatchStartup from '../Components/PotentialMatchStartup';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { SERVER_URL } from '../constants/constants';
 const { width: SCREEN_W } = Dimensions.get('window');
 
 export default function Matching() {
@@ -18,7 +19,7 @@ export default function Matching() {
     setIsLoading(true);
     
     try {
-      const response = await axios.get('http://10.40.252.128:8000/load_users_swipe');
+      const response = await axios.get(`${SERVER_URL}/load_users_swipe`);
       const newContent = response.data.content.map(item => {
         if (item.type === 'user') {
           return {

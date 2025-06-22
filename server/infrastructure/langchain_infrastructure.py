@@ -81,7 +81,39 @@ def return_relevant_startups(query):
             startup_ids = startup_tool_helper(query)
             startups = []
             return f"<STARTUP_IDS>{startup_ids}</STARTUP_IDS>"
-        
+
+@tool
+def return_business_plan(query):
+            """"Suggests potential startups matching the query,
+            it returns the output in the format <RELEVANT_STARTUPS>...<RELEVANT_STARTUPS>"""
+            startup_ids = startup_tool_helper(query)
+            startups = []
+            return f"json company metadata: {elasticsearch_inf.client.get(index='startup_index', id=2001)}. You have been provided all the necessary context to create a business plan for the company: Upstarter, create a detailed report. Ensure the final output include a <BUSINESS_PLAN> tag with the business plan"
+
+@tool
+def return_marketing_plan(query):
+            """"Suggests potential startups matching the query,
+            it returns the output in the format <RELEVANT_STARTUPS>...<RELEVANT_STARTUPS>"""
+            startup_ids = startup_tool_helper(query)
+            startups = []
+            return f"json company metadata: {elasticsearch_inf.client.get(index='startup_index', id=2001)}. You have been provided all the necessary context to create a marketing plan for the company: Upstarter, create a detailed report. Ensure the final output include a <MARKETING_PLAN> tag with the marketing plan"
+
+@tool
+def return_company_description(query):
+            """"Suggests potential startups matching the query,
+            it returns the output in the format <RELEVANT_STARTUPS>...<RELEVANT_STARTUPS>"""
+            startup_ids = startup_tool_helper(query)
+            startups = []
+            return f"json company metadata: {elasticsearch_inf.client.get(index='startup_index', id=2001)}. You have been provided all the necessary context to create a company description for potential investors for the company: Upstarter, create a detailed report. Ensure the final output include a <COMPANY_DESCRIPTION> tag with the company description"
+
+@tool
+def return_business_opportunity(query):
+            """"Suggests potential startups matching the query,
+            it returns the output in the format <RELEVANT_STARTUPS>...<RELEVANT_STARTUPS>"""
+            startup_ids = startup_tool_helper(query)
+            startups = []
+            return f"json company metadata: {elasticsearch_inf.client.get(index='startup_index', id=2001)}. You have been provided all the necessary context to create a business opportunity description for potential investors for the company: Upstarter, create a detailed report. Ensure the final output include a <BUSINESS_OPPORTUNITY> tag with the business opportunity description"
+    
 class LangChain_Inf:
     def __init__(self):
         self.client = elasticsearch_inf.client
@@ -155,6 +187,36 @@ class LangChain_Inf:
         return out
     
 
+    def workspace_agent(self, query):
+        # agent scatchpad
+        prompt =  prompt = ChatPromptTemplate.from_template("""
+            Answer the following question as best you can. You have access to the following tools:
+
+            {tools}
+
+            Use the following format:
+
+            Question: the input question you must answer
+            Thought: you should always think about what to do
+            Action: the action to take, should be one of [{tool_names}]
+            Action Input: the input to the action
+            Observation: the result of the action
+            ... (this Thought/Action/Action Input/Observation can repeat N times)
+            Thought: I now know the final answer
+            Final Answer: the final answer to the original question
+            Don't modify the brackets <BUSINESS_PLAN> OUTPUT_FROM_TOOL </BUSINESS_PLAN> <MARKETING_PLAN> OUTPUT_FROM_TOOL </MARKETING_PLAN> <COMPANY_DESCRIPTION> OUTPUT_FROM_TOOL </COMPANY_DESCRIPTION> <BUSINESS_OPPORTUNITY> OUTPUT_FROM_TOOL </BUSINESS_OPPORTUNITY>
+
+            Begin!
+           
+            Question: {input}
+            Thought:{agent_scratchpad}""")
+        business_tool = Tool.from_function(func=return_business_plan, name="return_business_plan", description="Returns a detailed report for a business plan, must be explicitly asked.")
+        marketing_tool = Tool.from_function(func=return_marketing_plan, name="return_marketing_plan", description="Returns a detailed report for a marketing plan, must be explicitly asked.")
+        company_description_tool = Tool.from_function(func=return_company_description, name="return_company_description", description="Returns a detailed report for a company description, must be explicitly asked.")
+        business_opportunity_tool = Tool.from_function(func=return_business_opportunity, name="return_business_opportunity", description="Returns a detailed report for a business opportunity, must be explicitly asked.")
+        agent = create_react_agent(self.llm, [business_tool, marketing_tool, company_description_tool, business_opportunity_tool], prompt=prompt)
+        agent_executor = AgentExecutor(agent=agent, tools=[business_tool, marketing_tool, company_description_tool, business_opportunity_tool], verbose=True, handle_parsing_errors=True)
+        return agent_executor.invoke({"input": query})["output"]
 
     def agent_user_qa(self, user_id, question):
         print("in agent user  qa")
