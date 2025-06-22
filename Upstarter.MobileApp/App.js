@@ -7,6 +7,7 @@ import { useEffect } from 'react';
 import { useNavigationContainerRef, useNavigation } from '@react-navigation/native';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5'
 
+
 // Import auth screens
 import Welcome from './Pages/Auth/Welcome';
 import Login from './Pages/Auth/Login';
@@ -20,6 +21,7 @@ import Chats from './Pages/Chats';
 import UserPage from './Pages/UserPage';
 import CurrentChat from './Pages/CurrentChat';
 import ChatsStack from './Pages/ChatsStack';
+import FoundersChat from './Pages/FoundersChat';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -46,6 +48,9 @@ function MainTabs() {
               break;
             case 'Profile':
               iconName = focused ? 'person' : 'person-outline';
+              break;
+            case 'FoundersChat':
+              iconName = focused ? 'chatbox-ellipses' : 'chatbox-ellipses-outline';
               break;
           }
 
@@ -86,6 +91,7 @@ function MainTabs() {
       <Tab.Screen name="Workspace" component={Workspace} />
       <Tab.Screen name="Chats" component={ChatsStack} />
       <Tab.Screen name="Profile" component={UserPage} />
+      <Tab.Screen name="FoundersChat" component={FoundersChat}/>
     </Tab.Navigator>
   );
 }
@@ -123,6 +129,7 @@ export default function App() {
         <Stack.Screen name="Login" component={Login} />
         <Stack.Screen name="Register" component={Register} />
         <Stack.Screen name="MainApp" component={MainTabs} />
+        <Stack.Screen name="FoundersChat" component={FoundersChat} />
       </Stack.Navigator>
     </NavigationContainer>
   );
