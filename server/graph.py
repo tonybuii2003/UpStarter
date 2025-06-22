@@ -1,6 +1,3 @@
-from flask import Flask, request, jsonify, Response, stream_with_context
-from flask_cors import CORS
-import time
 from typing import Dict, Optional
 from dotenv import load_dotenv
 load_dotenv()
@@ -8,14 +5,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from langchain_core.runnables import RunnablePassthrough
 from langchain.globals import set_llm_cache
-import logging
-import random
-from infrastructure.supabase_inf import Supabase_Infrastructure
-
 set_llm_cache(None)
-
-app = Flask(__name__)
-CORS(app)
 
 class StartupManager:
     def __init__(self):
@@ -24,6 +14,9 @@ class StartupManager:
                 "id": "ecovision",
                 "name": "EcoVision AI",
                 "description": "An AI-powered platform that helps businesses reduce their carbon footprint through predictive analytics",
+                "founding_year": 2022,
+                "industry": "Climate Tech / AI",
+                "funding_stage": "Series A",
                 "founders": [
                     {
                         "name": "Dr. Sarah Chen",
@@ -41,12 +34,20 @@ class StartupManager:
                         "interests": ["Clean tech", "Open source software", "Mentoring"],
                         "fun_fact": "Holds three patents for energy storage algorithms"
                     }
+                ],
+                "key_milestones": [
+                    "Won 2023 Green Tech Innovation Award",
+                    "Raised $15M Series A led by Greentech Capital",
+                    "Partnered with 50+ enterprises to reduce emissions"
                 ]
             },
             "agritech": {
                 "id": "agritech",
                 "name": "AgriTech Solutions",
                 "description": "AI-driven solutions for sustainable agriculture",
+                "founding_year": 2021,
+                "industry": "AgriTech",
+                "funding_stage": "Series B",
                 "founders": [
                     {
                         "name": "Dr. Raj Patel",
@@ -56,12 +57,20 @@ class StartupManager:
                         "interests": ["Food security", "Climate resilience", "Robotics"],
                         "fun_fact": "Developed an AI system that predicts crop yields with 95% accuracy"
                     }
+                ],
+                "key_milestones": [
+                    "Deployed in 500+ farms nationwide",
+                    "Won 2022 UN Sustainability Award",
+                    "Reduced water usage by 40% in pilot programs"
                 ]
             }
         }
 
     def get_startup(self, startup_id: str) -> Optional[Dict]:
         return self.startups.get(startup_id)
+
+    def list_startups(self) -> Dict[str, str]:
+        return {id: data["name"] for id, data in self.startups.items()}
 
 class FounderQA:
     def __init__(self):
@@ -78,9 +87,14 @@ class FounderQA:
         return False
     
     def setup_qa_chain(self):
-        template = """Answer questions about {company_name} founders:
+        template = """You are an AI assistant that answers questions about the founders of {company_name}.
+        Use only the following information about the founders:
+        
         {founders_info}
-        Question: {question}"""
+        
+        Current conversation:
+        Human: {question}
+        AI:"""
         
         prompt = ChatPromptTemplate.from_template(template)
         
@@ -103,90 +117,46 @@ class FounderQA:
     
     def ask_about_founders(self, question: str) -> str:
         if not self.current_startup:
-            raise ValueError("No startup selected")
-        return self.qa_chain.invoke({"question": question})
+            raise ValueError("No startup selected. Please set a startup first.")
+        return self.qa_chain.invoke(question)
 
-# Initialize the QA system
-qa_system = FounderQA()
-
-@app.route('/test', methods=['GET'])
-def test():
-    return jsonify({"success": 200, "content": "hello"})
-
-@app.route('/load_users_swipe', methods=['GET'])
-def load_users_swipe():
-    try:
-        supabase_inf = Supabase_Infrastructure()
-        user_ids = list(range(2000))  # More efficient way to create the list
-        random.shuffle(user_ids)
-        user_ids = user_ids[:25]  # Get 25 random user IDs
+def founder_chat():
+    qa_system = FounderQA()
+    
+    print("🚀 Welcome to Startup Founder Information System")
+    print("Available startups:")
+    for id, name in qa_system.manager.list_startups().items():
+        print(f"- {id}: {name}")
+    
+    while True:
+        startup_id = input("\nEnter startup ID (or 'exit' to quit): ").strip().lower()
+        if startup_id in ['exit', 'quit']:
+            break
         
-        users = []
-        for user_id in user_ids:
-            try:
-                # Add a small delay between requests to avoid overwhelming the server
-                time.sleep(0.1)
-                user_data = supabase_inf.get_user_by_id(f"{user_id}")
-                if user_data:  # Only append if we got valid data
-                    users.append(user_data)
-            except Exception as e:
-                logging.error(f"Error fetching user {user_id}: {str(e)}")
-                continue  # Skip this user and continue with the next
+        if not qa_system.set_startup(startup_id):
+            print(f"Error: Invalid startup ID '{startup_id}'")
+            continue
         
-        if not users:
-            return jsonify({"success": False, "error": "No users could be loaded"}), 500
+        current_startup = qa_system.current_startup
+        print(f"\n✨ Now exploring: {current_startup['name']}")
+        print(current_startup['description'])
+        print("\nFounders:")
+        for founder in current_startup["founders"]:
+            print(f"- {founder['name']} ({founder['title']})")
+        
+        while True:
+            question = input("\nAsk about founders (or 'back' to switch startups): ").strip()
+            if question.lower() in ['back', 'switch']:
+                break
+            if question.lower() in ['exit', 'quit']:
+                return
             
-        return jsonify({"success": True, "content": users})
-        
-    except Exception as e:
-        logging.error(f"Error in load_users_swipe: {str(e)}")
-        return jsonify({"success": False, "error": str(e)}), 500
+            try:
+                response = qa_system.ask_about_founders(question)
+                print("\nFounder Info:")
+                print(response.content)
+            except Exception as e:
+                print(f"\nError: {str(e)}")
 
-    return jsonify({"success": 200, "content": users})
-
-@app.route('/ask/<startup_id>', methods=['POST'])
-def ask(startup_id):
-    if not qa_system.set_startup(startup_id):
-        return jsonify({"error": "Invalid startup ID"}), 400
-    
-    question = request.json.get('question', '')
-    try:
-        response = qa_system.ask_about_founders(question)
-        return jsonify({
-            "answer": response.content,
-            "startup": qa_system.current_startup["name"]
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/ask_stream/<startup_id>', methods=['POST'])
-def ask_stream(startup_id):
-    if not qa_system.set_startup(startup_id):
-        return jsonify({"error": "Invalid startup ID"}), 400
-    
-    question = request.json.get('question', '')
-    
-    def generate():
-        try:
-            for chunk in qa_system.qa_chain.stream({"question": question}):
-                if hasattr(chunk, 'content'):  # For AIMessage objects
-                    yield f"data: {chunk.content}\n\n"
-                elif isinstance(chunk, dict) and 'response' in chunk:
-                    yield f"data: {chunk['response']}\n\n"
-                time.sleep(0.05)
-        except Exception as e:
-            yield f"data: [ERROR] {str(e)}\n\n"
-    
-    return Response(stream_with_context(generate()), mimetype='text/event-stream')
-
-@app.route('/startups', methods=['GET'])
-def list_startups():
-    return jsonify({
-        "startups": [
-            {"id": id, "name": data["name"]} 
-            for id, data in qa_system.manager.startups.items()
-        ]
-    })
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000, debug=True)
+if __name__ == "__main__":
+    founder_chat()

@@ -22,6 +22,7 @@ import UserPage from './Pages/UserPage';
 import CurrentChat from './Pages/CurrentChat';
 import ChatsStack from './Pages/ChatsStack';
 import FoundersChat from './Pages/FoundersChat';
+import MatchingStartups from './Pages/MatchingStartups';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -91,9 +92,18 @@ function MainTabs() {
       <Tab.Screen name="Workspace" component={Workspace} />
       <Tab.Screen name="Chats" component={ChatsStack} />
       <Tab.Screen name="Profile" component={UserPage} />
-      <Tab.Screen name="FoundersChat" component={FoundersChat}/>
+      <Tab.Screen 
+        name="MatchingStartups" 
+        component={MatchingStartups}
+        options={{
+          tabBarButton: () => null,
+          tabBarItemStyle: { display: 'none' }
+        }}
+      />
     </Tab.Navigator>
+    
   );
+  
 }
 
 export default function App() {

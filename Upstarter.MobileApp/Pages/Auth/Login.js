@@ -10,7 +10,11 @@ export default function Login({ navigation }) {
     // For now, we'll just navigate to MainApp without any validation
     navigation.replace('MainApp');
   };
-
+  const goToInvestorMode = () => {
+  navigation.navigate('MainApp', { 
+    screen: 'MatchingStartups' 
+  });
+};
   return (
     <View style={styles.container}>
       <TouchableOpacity 
@@ -53,6 +57,12 @@ export default function Login({ navigation }) {
 
         <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
           <Text style={styles.loginButtonText}>LOG IN</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={styles.investorButton}
+          onPress={goToInvestorMode}
+        >
+          <Text style={styles.investorButtonText}>Investor Mode</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -117,4 +127,17 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+  investorButton: {
+  borderWidth: 1,
+  borderColor: '#0ACF83',
+  borderRadius: 8,
+  padding: 15,
+  alignItems: 'center',
+  marginBottom: 10,
+},
+investorButtonText: {
+  color: '#0ACF83',
+  fontSize: 16,
+  fontWeight: '600',
+},
 }); 

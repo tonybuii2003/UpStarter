@@ -3,5 +3,25 @@ flask-cors
 Flask-Caching
 supabase
 Flask-JWT-Extended
-pip install langchain-core langgraph>0.2.27
+# Core Packages
+langchain
+langchain-core
+langchain-community
+
+# Supporting Packages
+langchain-cli
+langchain-experimental
+langchain-openai
+langchain-text-splitters
+langchainhub
+
+# Additional Dependencies
+langdetect
+langserve
+langsmith
+openai>=1.0
+python-dotenv>=1.0
+
+langchain-core
+langgraph>0.2.27
 tensorflow
