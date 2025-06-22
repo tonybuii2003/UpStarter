@@ -8,6 +8,10 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from langchain_core.runnables import RunnablePassthrough
 from langchain.globals import set_llm_cache
+import logging
+import random
+from infrastructure.supabase_inf import Supabase_Infrastructure
+
 set_llm_cache(None)
 
 app = Flask(__name__)
@@ -105,6 +109,41 @@ class FounderQA:
 # Initialize the QA system
 qa_system = FounderQA()
 
+@app.route('/test', methods=['GET'])
+def test():
+    return jsonify({"success": 200, "content": "hello"})
+
+@app.route('/load_users_swipe', methods=['GET'])
+def load_users_swipe():
+    try:
+        supabase_inf = Supabase_Infrastructure()
+        user_ids = list(range(2000))  # More efficient way to create the list
+        random.shuffle(user_ids)
+        user_ids = user_ids[:25]  # Get 25 random user IDs
+        
+        users = []
+        for user_id in user_ids:
+            try:
+                # Add a small delay between requests to avoid overwhelming the server
+                time.sleep(0.1)
+                user_data = supabase_inf.get_user_by_id(f"{user_id}")
+                if user_data:  # Only append if we got valid data
+                    users.append(user_data)
+            except Exception as e:
+                logging.error(f"Error fetching user {user_id}: {str(e)}")
+                continue  # Skip this user and continue with the next
+        
+        if not users:
+            return jsonify({"success": False, "error": "No users could be loaded"}), 500
+            
+        return jsonify({"success": True, "content": users})
+        
+    except Exception as e:
+        logging.error(f"Error in load_users_swipe: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+    return jsonify({"success": 200, "content": users})
+
 @app.route('/ask/<startup_id>', methods=['POST'])
 def ask(startup_id):
     if not qa_system.set_startup(startup_id):
@@ -150,4 +189,4 @@ def list_startups():
     })
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5040, debug=True)
+    app.run(host='0.0.0.0', port=8000, debug=True)
