@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   View, 
@@ -8,21 +9,47 @@ import {
   SafeAreaView, 
   ScrollView,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  Modal,
+  Pressable,
+  Dimensions
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
+import PotentialStartup from '../Components/PotentialStartups'; // Import your component
 
-const ChatScreenStartup = ({ route }) => {
+const { width: SCREEN_W } = Dimensions.get('window');
+
+const ChatScreenStartup = ({ route, navigation }) => {
   const { startup } = route.params;
   const [messages, setMessages] = useState([
+    {
+      text: `Here's some information about ${startup.name}:`,
+      sender: 'bot',
+      component: (
+        <TouchableOpacity 
+          onPress={() => setModalVisible(true)}
+          activeOpacity={0.8}
+        >
+          <PotentialStartup 
+            compact={true}
+            name={startup.name}
+            industry={startup.industry}
+            description={startup.about_content}
+            logo={startup.logo_path}
+            cofounders={startup.cofounders || []}
+          />
+        </TouchableOpacity>
+      )
+    },
     { 
       text: `Hi! I'm Upstarter AI. I can answer questions about ${startup.name} and their team. What would you like to know?`, 
-      sender: 'bot' 
+      sender: 'bot',
     }
   ]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isModalVisible, setModalVisible] = useState(false);
   const scrollViewRef = useRef();
   const cancelTokenRef = useRef(null);
 
@@ -50,14 +77,14 @@ const ChatScreenStartup = ({ route }) => {
     try {
       const response = await axios.post(
         `http://10.56.121.148:8000/ask_stream/${startup.startup_id}`,
-        { question: inputText }, // Send as JSON body
+        { question: inputText },
         {
           cancelToken: cancelToken.token,
           headers: {
             'Accept': 'text/event-stream',
             'Content-Type': 'application/json'
           },
-          responseType: 'text' // Important for streaming
+          responseType: 'text'
         }
       );
 
@@ -101,11 +128,12 @@ const ChatScreenStartup = ({ route }) => {
       }
     }
   };
+
   useEffect(() => {
     return () => {
-      // Clean up EventSource when component unmounts
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
+      // Clean up Axios request when component unmounts
+      if (cancelTokenRef.current) {
+        cancelTokenRef.current.cancel('Component unmounted');
       }
     };
   }, []);
@@ -131,33 +159,46 @@ const ChatScreenStartup = ({ route }) => {
         contentContainerStyle={styles.messagesContent}
       >
         {messages.map((message, index) => (
-          <View 
-            key={index} 
-            style={[
-              styles.messageBubble,
-              message.sender === 'user' ? styles.userBubble : styles.botBubble
-            ]}
-          >
-            {message.sender === 'bot' && (
-              <View style={styles.botAvatar}>
-                <Text style={styles.botAvatarText}>AI</Text>
+          <View key={index}>
+            {message.component ? (
+              <TouchableOpacity 
+                style={styles.componentContainer}
+                onPress={() => setModalVisible(true)}
+                activeOpacity={0.8}
+              >
+                {message.component}
+              </TouchableOpacity>
+            ) : (
+              <View 
+                style={[
+                  styles.messageBubble,
+                  message.sender === 'user' ? styles.userBubble : styles.botBubble,
+                  message.loading ? styles.loadingBubble : null
+                ]}
+              >
+                {message.sender === 'bot' && (
+                  <View style={styles.botAvatar}>
+                    <Text style={styles.botAvatarText}>AI</Text>
+                  </View>
+                )}
+                <View style={styles.messageContent}>
+                  <Text style={[
+                    styles.messageText,
+                    message.sender === 'user' ? styles.userBubbleText : styles.botBubbleText,
+                    message.loading ? {backgroundColor: 'transparent'} : null
+                  ]}>
+                    {message.text}
+                  </Text>
+                  {message.loading && (
+                    <View style={styles.loadingDots}>
+                      <View style={styles.dot} />
+                      <View style={styles.dot} />
+                      <View style={styles.dot} />
+                    </View>
+                  )}
+                </View>
               </View>
             )}
-            <View style={styles.messageContent}>
-              <Text style={[
-                styles.messageText,
-                message.sender === 'user' ? styles.userBubbleText : styles.botBubbleText
-              ]}>
-                {message.text}
-              </Text>
-              {message.loading && (
-                <View style={styles.loadingDots}>
-                  <View style={styles.dot} />
-                  <View style={styles.dot} />
-                  <View style={styles.dot} />
-                </View>
-              )}
-            </View>
           </View>
         ))}
       </ScrollView>
@@ -188,9 +229,44 @@ const ChatScreenStartup = ({ route }) => {
           />
         </TouchableOpacity>
       </KeyboardAvoidingView>
+
+      {/* Modal for showing full startup details */}
+      <Modal
+        visible={isModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.modalContainer}>
+          <Pressable 
+            style={styles.modalBackdrop}
+            onPress={() => setModalVisible(false)}
+          />
+          <View style={styles.modalContent}>
+            <ScrollView>
+              <PotentialStartup 
+                compact={false}
+                name={startup.name}
+                industry={startup.industry}
+                description={startup.about_content}
+                logo={startup.logo_path}
+                businessPlan={startup.business_plan_content}
+                cofounders={startup.cofounders || []}
+              />
+            </ScrollView>
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => setModalVisible(false)}
+            >
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -227,6 +303,10 @@ const styles = StyleSheet.create({
   },
   botBubble: {
     alignSelf: 'flex-start',
+    backgroundColor: '#f0f0f0',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
   },
   userBubble: {
     alignSelf: 'flex-end',
@@ -267,6 +347,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingLeft: 12,
     paddingBottom: 12,
+    justifyContent: 'center',
   },
   dot: {
     width: 8,
@@ -296,6 +377,41 @@ const styles = StyleSheet.create({
   sendButton: {
     marginLeft: 8,
     padding: 8,
+  },
+  componentContainer: {
+    marginHorizontal: 16,
+    marginVertical: 8,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  // Modal styles
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    // backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  modalContent: {
+    width: SCREEN_W * 0.9,
+    maxHeight: '80%',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#1ecb8b',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1,
   },
 });
 
